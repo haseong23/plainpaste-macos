@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.ada.plainpaste</string>
+	<string>com.haseong23.plainpaste</string>
 	<key>CFBundleName</key>
 	<string>PlainPaste</string>
 	<key>CFBundleDisplayName</key>
