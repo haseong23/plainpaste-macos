@@ -1,6 +1,7 @@
 import Cocoa
 import Carbon
 import ServiceManagement
+import Vision
 
 // MARK: - 단축키 모델 (Carbon modifier 기준으로 저장)
 
@@ -112,6 +113,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         shortcutInfoItem.isEnabled = false
         menu.addItem(shortcutInfoItem)
 
+        let hintItem = NSMenuItem(title: "이미지는 자동으로 OCR 후 텍스트로 붙여넣기",
+                                  action: nil, keyEquivalent: "")
+        hintItem.isEnabled = false
+        menu.addItem(hintItem)
+
         let change = NSMenuItem(title: "단축키 변경…",
                                 action: #selector(changeShortcut), keyEquivalent: "")
         change.target = self
@@ -146,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                  eventKind: UInt32(kEventHotKeyPressed))
         InstallEventHandler(GetApplicationEventTarget(), { _, _, userData -> OSStatus in
             guard let userData else { return noErr }
-            Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue().pastePlain()
+            Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue().smartPaste()
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
@@ -159,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if status != noErr {
             hotKeyRef = nil
             alert("단축키 등록 실패",
-                  "\(shortcut.display) 조합을 등록할 수 없습니다 (다른 앱이 선점했을 수 있습니다). 다른 조합을 지정해 주세요.")
+                  "\(shortcut.display) 조합을 등록할 수 없습니다 (다른 앱이나 이전 PlainPaste가 선점했을 수 있습니다). 다른 조합을 지정하거나 이전 인스턴스를 종료해 주세요.")
         }
     }
 
@@ -170,19 +176,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
-    // MARK: 핵심 기능 — Plain Text 붙여넣기
+    // MARK: 핵심 기능 — 클립보드 내용에 따라 자동 분기 (글자→플레인, 이미지→OCR)
 
-    func pastePlain() {
+    func smartPaste() {
         guard ensureAccessibility(prompt: true) else {
             showAccessibilityAlert()
             return
         }
 
         let pb = NSPasteboard.general
-        guard let plain = pb.string(forType: .string), !plain.isEmpty else {
-            NSSound.beep()
+
+        // 1) 클립보드에 글자가 있으면 → 플레인 텍스트 붙여넣기
+        if let plain = pb.string(forType: .string), !plain.isEmpty {
+            pasteText(plain)
             return
         }
+
+        // 2) 글자가 없고 이미지가 있으면 → OCR 후 인식 텍스트 붙여넣기
+        if let image = clipboardImage() {
+            DispatchQueue.global(qos: .userInitiated).async {
+                let text = Self.recognizeText(in: image)
+                DispatchQueue.main.async {
+                    guard let text, !text.isEmpty else {
+                        NSSound.beep()   // 인식된 글자 없음
+                        return
+                    }
+                    self.pasteText(text)
+                }
+            }
+            return
+        }
+
+        // 3) 붙여넣을 게 없음
+        NSSound.beep()
+    }
+
+    // 주어진 텍스트를 플레인으로 붙여넣기 (클립보드 스냅샷 → 교체 → 합성 ⌘V → 복원)
+    private func pasteText(_ text: String) {
+        let pb = NSPasteboard.general
 
         // 원본 클립보드 스냅샷 (붙여넣기 후 복원해서 클립보드를 훼손하지 않음)
         let savedItems: [NSPasteboardItem] = (pb.pasteboardItems ?? []).map { item in
@@ -199,11 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         pb.clearContents()
-        pb.setString(plain, forType: .string)
+        pb.setString(text, forType: .string)
         let expectedChangeCount = pb.changeCount
 
         // 단축키의 물리 modifier(⌃⌥⌘ 등)가 아직 눌려 있으면 합성 ⌘V에 섞여
-        // 대상 앱이 엉뚱한 조합(예: ⌃⌥⌘V)을 받게 됨 → 모두 놓일 때까지 대기 후 전송
+        // 대상 앱이 엉뚱한 조합(예: ⌘⇧V)을 받게 됨 → 모두 놓일 때까지 대기 후 전송
         postCmdVAfterModifierRelease {
             // 붙여넣기가 전달된 뒤 원본 복원 (그 사이 사용자가 새로 복사했으면 건드리지 않음)
             if hadRichContent {
@@ -214,6 +245,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 }
             }
         }
+    }
+
+    // 클립보드에서 이미지를 CGImage로 획득 (비트맵 또는 파일 URL)
+    private func clipboardImage() -> CGImage? {
+        let pb = NSPasteboard.general
+        if let data = pb.data(forType: .png) ?? pb.data(forType: .tiff),
+           let image = NSImage(data: data) {
+            return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        // Finder에서 이미지 파일을 복사한 경우 (파일 URL)
+        if let urls = pb.readObjects(forClasses: [NSURL.self],
+                                     options: [.urlReadingFileURLsOnly: true]) as? [URL],
+           let url = urls.first,
+           let image = NSImage(contentsOf: url) {
+            return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+        return nil
+    }
+
+    // Vision 온디바이스 OCR (한글 우선, 작은 글씨 보정 위해 업스케일)
+    private static func recognizeText(in image: CGImage) -> String? {
+        let target = upscaleForOCR(image)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = true
+        request.minimumTextHeight = 0.01                          // 작은 UI 글씨도 놓치지 않게
+        if #available(macOS 13.0, *) {
+            request.revision = VNRecognizeTextRequestRevision3     // 한국어 지원·최신 정확도
+            request.automaticallyDetectsLanguage = false
+            request.recognitionLanguages = ["ko-KR", "en-US"]      // 빈도순: 한글 > 영어
+        } else {
+            request.recognitionLanguages = ["en-US"]               // 12.x: 한국어 미지원
+        }
+        let handler = VNImageRequestHandler(cgImage: target, options: [:])
+        guard (try? handler.perform([request])) != nil,
+              let observations = request.results else { return nil }
+        // 읽기 순서(위→아래, 같은 줄은 왼→오)로 정렬 후 줄 결합
+        let sorted = observations.sorted { a, b in
+            let ay = a.boundingBox.midY, by = b.boundingBox.midY
+            if abs(ay - by) > 0.01 { return ay > by }              // boundingBox 원점은 좌하단
+            return a.boundingBox.minX < b.boundingBox.minX
+        }
+        let lines = sorted.compactMap { $0.topCandidates(1).first?.string }
+        return lines.joined(separator: "\n")
+    }
+
+    // 작은 이미지를 확대해 OCR 정확도(특히 1 l I | 같은 글자 구분)를 높임.
+    // 이미 충분히 크면 원본을 그대로 반환.
+    private static func upscaleForOCR(_ image: CGImage) -> CGImage {
+        let maxDim = max(image.width, image.height)
+        guard maxDim > 0 else { return image }
+        let scale = min(3.0, max(1.0, 2000.0 / Double(maxDim)))
+        guard scale > 1.01 else { return image }
+        let w = Int(Double(image.width) * scale)
+        let h = Int(Double(image.height) * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
+                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+            return image
+        }
+        ctx.interpolationQuality = .high
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+        return ctx.makeImage() ?? image
     }
 
     private func postCmdVAfterModifierRelease(completion: @escaping () -> Void) {
