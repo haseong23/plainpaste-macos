@@ -4,7 +4,7 @@
 클립보드가 **이미지면 자동으로 OCR**해서 인식된 텍스트를 대신 붙여넣습니다 — 단축키 하나로 글자/이미지 자동 분기.
 
 <p align="center">
-  <img src="AppIcon.icns" width="120" alt="PlainPaste">
+  <img src="icon.png" width="120" alt="PlainPaste">
 </p>
 
 ## 특징
