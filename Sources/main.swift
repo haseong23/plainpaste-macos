@@ -10,7 +10,7 @@ struct Shortcut {
     var modifiers: UInt32   // Carbon: cmdKey/shiftKey/optionKey/controlKey
 
     static let `default` = Shortcut(keyCode: UInt32(kVK_ANSI_V),
-                                    modifiers: UInt32(cmdKey | shiftKey))
+                                    modifiers: UInt32(cmdKey | optionKey | controlKey))
 
     static func load() -> Shortcut {
         let d = UserDefaults.standard

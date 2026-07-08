@@ -2,21 +2,47 @@
 
 전역 단축키 하나로 **어디서든 서식 없는 Plain Text 붙여넣기**를 실행하는 macOS 메뉴바 앱.
 
-- 기본 단축키: **⌘⇧V** (메뉴바 아이콘 → "단축키 변경…"으로 자유롭게 재지정)
+- 기본 단축키: **⌃⌥⌘V** (메뉴바 아이콘 → "단축키 변경…"으로 자유롭게 재지정)
 - 클립보드가 **이미지(스크린샷 등)면 자동으로 OCR**해서 인식된 텍스트를 붙여넣기 — 온디바이스 Vision, 한글·영문 (단축키 하나로 글자/이미지 자동 분기)
 - 의존성 0, 단일 Swift 파일, 바이너리 수백 KB — Dock 아이콘 없이 메뉴바에만 상주
 - 붙여넣기 후 **원본 클립보드(서식·이미지 포함)를 자동 복원** — 클립보드를 훼손하지 않음
 
-## 설치
+## 설치 — 한 줄이면 끝 (권장)
 
-### DMG (권장)
+터미널에 아래 한 줄을 붙여넣고 Enter:
 
-[Releases](../../releases)에서 `PlainPaste-1.0.dmg`를 받아 열고, PlainPaste를 **Applications 폴더로 드래그**하세요.
+```bash
+curl -fsSL https://raw.githubusercontent.com/haseong23/plainpaste-macos/main/install.sh | bash
+```
 
-> ad-hoc 서명 앱이라 첫 실행 시 Gatekeeper 경고가 뜹니다.
-> **Applications 폴더의 PlainPaste를 우클릭 → 열기 → 열기**로 한 번만 허용하면 됩니다.
+소스를 그 자리에서 컴파일해 설치하므로 **서명 없는 앱인데도 Gatekeeper 경고("확인되지 않은 개발자")가 전혀 뜨지 않습니다.** 내려받은 `.app`이 아니라 방금 만든 바이너리라 quarantine 딱지가 붙지 않기 때문입니다.
 
-### 소스에서 빌드
+> 처음이라 Xcode Command Line Tools가 없으면 설치 창이 한 번 뜹니다(Apple 공식·무료). '설치'를 누르면 나머지는 자동으로 이어집니다.
+
+레포를 이미 받아두었다면 클론 폴더에서 이렇게 실행해도 동일합니다:
+
+```bash
+./install.sh
+```
+
+설치가 끝나면 앱이 바로 실행되고, 처음 한 번 **손쉬운 사용** 권한 허용 창이 뜹니다(아래 [최초 실행 시 권한](#최초-실행-시-권한) 참고).
+
+## 설치 — DMG (수동)
+
+서명이 없는 앱이라 DMG로 받으면 macOS Sequoia(15) 이후에는 **우클릭 → 열기**로 열리지 않고, 아래처럼 시스템 설정에서 한 번 허용해야 합니다(그래서 위의 한 줄 설치를 권장합니다):
+
+1. [Releases](../../releases)에서 `PlainPaste-1.1.dmg`를 받아 열고, **PlainPaste를 Applications 폴더로 드래그**
+2. Applications의 PlainPaste를 한 번 더블클릭 → "확인되지 않은 개발자" 경고 → **완료/취소**
+3. **시스템 설정 → 개인정보 보호 및 보안** → 스크롤 맨 아래 *"'PlainPaste'을(를) 열 수 없습니다"* 옆 **[그래도 열기]** 클릭 → 다시 한 번 **[열기]**
+
+터미널이 편하다면 이 두 줄이 위 3단계를 대신합니다:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/PlainPaste.app
+open /Applications/PlainPaste.app
+```
+
+## 소스에서 직접 빌드
 
 ```bash
 ./build.sh                          # dist/PlainPaste.app 생성
