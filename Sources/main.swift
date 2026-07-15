@@ -190,9 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let sourceChangeCount = pb.changeCount
         if let plain = pb.string(forType: .string), !plain.isEmpty {
             if pasteboardHasRichText(pb) {
-                // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣고, 전달 뒤 원본(서식) 복원
-                pasteText(plain, ifPasteboardUnchangedFrom: sourceChangeCount,
-                          restoring: snapshotPasteboard(pb))
+                // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣기
+                pasteText(plain, ifPasteboardUnchangedFrom: sourceChangeCount)
             } else {
                 // 이미 순수 텍스트라 지울 서식이 없다.
                 // 우리 프로세스가 값을 되읽어 다시 쓰면 한 박자 밀리는(직전 값이 나오는) 문제가 생기므로,
@@ -205,7 +204,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 2) 글자가 없고 이미지가 있으면 → OCR 후 인식 텍스트 붙여넣기
         if let image = clipboardImage() {
             guard pb.changeCount == sourceChangeCount else { return }
-            let original = snapshotPasteboard(pb)   // OCR 시작 전 원본 이미지 스냅샷
             DispatchQueue.global(qos: .userInitiated).async {
                 let text = Self.recognizeText(in: image)
                 DispatchQueue.main.async {
@@ -215,8 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                         NSSound.beep()   // 인식된 글자 없음
                         return
                     }
-                    self.pasteText(text, ifPasteboardUnchangedFrom: sourceChangeCount,
-                                   restoring: original)
+                    self.pasteText(text, ifPasteboardUnchangedFrom: sourceChangeCount)
                 }
             }
             return
@@ -233,23 +230,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return types.contains { rich.contains($0) }
     }
 
-    // 현재 클립보드의 모든 항목을 복제해 스냅샷 (붙여넣기 후 원본 복원용)
-    private func snapshotPasteboard(_ pb: NSPasteboard) -> [NSPasteboardItem] {
-        return (pb.pasteboardItems ?? []).map { item in
-            let copy = NSPasteboardItem()
-            for type in item.types {
-                if let data = item.data(forType: type) {
-                    copy.setData(data, forType: type)
-                }
-            }
-            return copy
-        }
-    }
-
     // 주어진 텍스트를 플레인으로 붙여넣기 (서식/이미지를 벗겨 재작성하는 경로).
-    // 붙여넣기가 전달된 뒤 original을 되돌려, 이후 일반 ⌘V로 원본을 그대로 쓸 수 있게 한다.
-    private func pasteText(_ text: String, ifPasteboardUnchangedFrom sourceChangeCount: Int,
-                           restoring original: [NSPasteboardItem]) {
+    // 붙여넣은 뒤 클립보드는 이 플레인 텍스트를 그대로 둔다 — 백그라운드 타이머로 원본을
+    // 되돌리면 그 쓰기가 사용자의 ⌘C와 경합해(크로스-프로세스 changeCount 지연) 방금 복사한
+    // 내용을 덮어써 "⌘C를 두 번 눌러야 복사되는" 문제가 생기므로 복원하지 않는다.
+    private func pasteText(_ text: String, ifPasteboardUnchangedFrom sourceChangeCount: Int) {
         let pb = NSPasteboard.general
         guard pb.changeCount == sourceChangeCount else { return }
 
@@ -260,15 +245,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 단축키의 물리 modifier(⌃⌥⌘ 등)가 아직 눌려 있으면 합성 ⌘V에 섞여
         // 대상 앱이 엉뚱한 조합(예: ⌘⇧V)을 받게 됨 → 모두 놓일 때까지 대기 후 전송.
         // settle: 방금 쓴 플레인 텍스트가 대상 앱에 반영되도록 아주 짧게 대기 후 ⌘V 전송.
-        postCmdVAfterModifierRelease(expectedChangeCount: plainChangeCount, settle: 0.05) {
-            // 대상 앱이 플레인 텍스트를 실제로 읽을 시간을 준 뒤 원본(서식·이미지)을 복원한다.
-            // 그 사이 사용자가 새로 복사했으면(변경 카운트가 올라갔으면) 절대 건드리지 않는다.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                guard pb.changeCount == plainChangeCount else { return }
-                pb.clearContents()
-                pb.writeObjects(original)
-            }
-        }
+        postCmdVAfterModifierRelease(expectedChangeCount: plainChangeCount, settle: 0.05)
     }
 
     // 클립보드에서 이미지를 CGImage로 획득 (비트맵 또는 파일 URL)
@@ -334,8 +311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         return ctx.makeImage() ?? image
     }
 
-    private func postCmdVAfterModifierRelease(expectedChangeCount: Int, settle: TimeInterval = 0,
-                                              completion: (() -> Void)? = nil) {
+    private func postCmdVAfterModifierRelease(expectedChangeCount: Int, settle: TimeInterval = 0) {
         DispatchQueue.global(qos: .userInteractive).async {
             let deadline = Date().addingTimeInterval(1.0)
             let modifierMask: CGEventFlags = [.maskCommand, .maskShift, .maskAlternate, .maskControl]
@@ -347,7 +323,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             DispatchQueue.main.async {
                 guard NSPasteboard.general.changeCount == expectedChangeCount else { return }
                 self.postCmdV()
-                completion?()
             }
         }
     }
