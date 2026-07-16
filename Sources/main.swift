@@ -1,77 +1,10 @@
 import Cocoa
 import Carbon
 import ServiceManagement
-import Vision
 
-// MARK: - 단축키 모델 (Carbon modifier 기준으로 저장)
-
-struct Shortcut {
-    var keyCode: UInt32
-    var modifiers: UInt32   // Carbon: cmdKey/shiftKey/optionKey/controlKey
-
-    static let `default` = Shortcut(keyCode: UInt32(kVK_ANSI_V),
-                                    modifiers: UInt32(cmdKey | optionKey | controlKey))
-
-    static func load() -> Shortcut {
-        let d = UserDefaults.standard
-        guard d.object(forKey: "shortcutKeyCode") != nil else { return .default }
-        return Shortcut(keyCode: UInt32(d.integer(forKey: "shortcutKeyCode")),
-                        modifiers: UInt32(d.integer(forKey: "shortcutModifiers")))
-    }
-
-    func save() {
-        let d = UserDefaults.standard
-        d.set(Int(keyCode), forKey: "shortcutKeyCode")
-        d.set(Int(modifiers), forKey: "shortcutModifiers")
-    }
-
-    var display: String {
-        var s = ""
-        if modifiers & UInt32(controlKey) != 0 { s += "⌃" }
-        if modifiers & UInt32(optionKey)  != 0 { s += "⌥" }
-        if modifiers & UInt32(shiftKey)   != 0 { s += "⇧" }
-        if modifiers & UInt32(cmdKey)     != 0 { s += "⌘" }
-        return s + keyName(for: keyCode)
-    }
-}
-
-func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
-    var m: UInt32 = 0
-    if flags.contains(.command) { m |= UInt32(cmdKey) }
-    if flags.contains(.shift)   { m |= UInt32(shiftKey) }
-    if flags.contains(.option)  { m |= UInt32(optionKey) }
-    if flags.contains(.control) { m |= UInt32(controlKey) }
-    return m
-}
-
-// 키코드 → 표시 문자열 (현재 키보드 레이아웃 기준)
-func keyName(for keyCode: UInt32) -> String {
-    let special: [UInt32: String] = [
-        36: "↩", 48: "⇥", 49: "Space", 51: "⌫", 53: "⎋", 76: "⌤",
-        114: "Help", 115: "↖", 116: "⇞", 117: "⌦", 119: "↘", 121: "⇟",
-        123: "←", 124: "→", 125: "↓", 126: "↑",
-        122: "F1", 120: "F2", 99: "F3", 118: "F4", 96: "F5", 97: "F6",
-        98: "F7", 100: "F8", 101: "F9", 109: "F10", 103: "F11", 111: "F12",
-    ]
-    if let s = special[keyCode] { return s }
-
-    guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-          let layoutPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
-    else { return "Key\(keyCode)" }
-
-    let layoutData = Unmanaged<CFData>.fromOpaque(layoutPtr).takeUnretainedValue() as Data
-    var deadKeyState: UInt32 = 0
-    var chars = [UniChar](repeating: 0, count: 4)
-    var length = 0
-    let status = layoutData.withUnsafeBytes { (ptr: UnsafeRawBufferPointer) -> OSStatus in
-        let layout = ptr.bindMemory(to: UCKeyboardLayout.self).baseAddress!
-        return UCKeyTranslate(layout, UInt16(keyCode), UInt16(kUCKeyActionDisplay), 0,
-                              UInt32(LMGetKbdType()), UInt32(kUCKeyTranslateNoDeadKeysBit),
-                              &deadKeyState, chars.count, &length, &chars)
-    }
-    guard status == noErr, length > 0 else { return "Key\(keyCode)" }
-    return String(utf16CodeUnits: chars, count: length).uppercased()
-}
+// 순수 로직(Shortcut, carbonModifiers, keyName, textPasteMode, ocrUpscaleFactor,
+// groupOCRLines, looksLikeCode)은 PlainPasteCore.swift로 분리 — 유닛테스트 대상.
+// OCR 파이프라인(recognizeTextOCR)은 OCREngine.swift로 분리 — 정확도 벤치(Tests/Bench) 대상.
 
 // MARK: - 앱 본체
 
@@ -93,6 +26,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         registerHotKey()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
+        setupTestHookIfEnabled()
+    }
+
+    // MARK: E2E 테스트 훅 — `-PPTestHook 1` 실행 인자로 켰을 때만 활성 (Tests/e2e.sh 전용)
+    //
+    // 분산 노티로 smartPaste()를 발동시켜, 합성 단축키 없이도 테스트 러너가 안정적으로
+    // 붙여넣기 경로를 구동할 수 있게 한다. 평상시 실행에는 아무 영향 없음.
+
+    private func setupTestHookIfEnabled() {
+        guard UserDefaults.standard.bool(forKey: "PPTestHook") else { return }
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.haseong23.plainpaste.test.trigger"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.smartPaste()
+        }
     }
 
     // MARK: 메뉴바
@@ -185,27 +134,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         let pb = NSPasteboard.general
+        let sourceChangeCount = pb.changeCount
 
         // 1) 클립보드에 글자가 있으면 → 플레인 텍스트 붙여넣기
-        let sourceChangeCount = pb.changeCount
-        if let plain = pb.string(forType: .string), !plain.isEmpty {
-            if pasteboardHasRichText(pb) {
-                // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣기
-                pasteText(plain, ifPasteboardUnchangedFrom: sourceChangeCount)
-            } else {
-                // 이미 순수 텍스트라 지울 서식이 없다.
-                // 우리 프로세스가 값을 되읽어 다시 쓰면 한 박자 밀리는(직전 값이 나오는) 문제가 생기므로,
-                // 클립보드는 손대지 않고 ⌘V만 보내 대상 앱이 살아 있는 클립보드를 직접 읽게 한다.
-                postCmdVAfterModifierRelease(expectedChangeCount: sourceChangeCount)
-            }
+        //    분기 규칙은 textPasteMode(순수 로직)로 두어 유닛테스트로 고정한다.
+        let plain = pb.string(forType: .string)
+        switch textPasteMode(plainString: plain, hasRichText: pasteboardHasRichText(pb)) {
+        case .rewrite:
+            // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣기 (클립보드를 플레인으로 덮어씀)
+            pasteText(plain!, ifPasteboardUnchangedFrom: sourceChangeCount)
             return
+        case .direct:
+            // 이미 순수 텍스트라 지울 서식이 없다.
+            // 우리 프로세스가 값을 되읽어 다시 쓰면 한 박자 밀리는(직전 값이 나오는) 문제가,
+            // 지연 복원까지 하면 사용자의 다음 ⌘C를 덮어써(두 번 눌러야 하는) 문제가 생긴다.
+            // → 클립보드는 손대지 않고 ⌘V만 보내 대상 앱이 살아 있는 클립보드를 직접 읽게 한다.
+            postCmdVAfterModifierRelease(expectedChangeCount: sourceChangeCount)
+            return
+        case .none:
+            break   // 글자가 없음 → 아래 이미지/OCR 분기로
         }
 
         // 2) 글자가 없고 이미지가 있으면 → OCR 후 인식 텍스트 붙여넣기
         if let image = clipboardImage() {
             guard pb.changeCount == sourceChangeCount else { return }
             DispatchQueue.global(qos: .userInitiated).async {
-                let text = Self.recognizeText(in: image)
+                let text = recognizeTextOCR(in: image)
                 DispatchQueue.main.async {
                     // OCR 중 새 복사가 들어왔으면 그 내용을 절대 덮어쓰지 않는다.
                     guard pb.changeCount == sourceChangeCount else { return }
@@ -263,52 +217,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return image.cgImage(forProposedRect: nil, context: nil, hints: nil)
         }
         return nil
-    }
-
-    // Vision 온디바이스 OCR (한글 우선, 작은 글씨 보정 위해 업스케일)
-    private static func recognizeText(in image: CGImage) -> String? {
-        let target = upscaleForOCR(image)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = true
-        request.minimumTextHeight = 0.01                          // 작은 UI 글씨도 놓치지 않게
-        if #available(macOS 13.0, *) {
-            request.revision = VNRecognizeTextRequestRevision3     // 한국어 지원·최신 정확도
-            request.automaticallyDetectsLanguage = false
-            request.recognitionLanguages = ["ko-KR", "en-US"]      // 빈도순: 한글 > 영어
-        } else {
-            request.recognitionLanguages = ["en-US"]               // 12.x: 한국어 미지원
-        }
-        let handler = VNImageRequestHandler(cgImage: target, options: [:])
-        guard (try? handler.perform([request])) != nil,
-              let observations = request.results else { return nil }
-        // 읽기 순서(위→아래, 같은 줄은 왼→오)로 정렬 후 줄 결합
-        let sorted = observations.sorted { a, b in
-            let ay = a.boundingBox.midY, by = b.boundingBox.midY
-            if abs(ay - by) > 0.01 { return ay > by }              // boundingBox 원점은 좌하단
-            return a.boundingBox.minX < b.boundingBox.minX
-        }
-        let lines = sorted.compactMap { $0.topCandidates(1).first?.string }
-        return lines.joined(separator: "\n")
-    }
-
-    // 작은 이미지를 확대해 OCR 정확도(특히 1 l I | 같은 글자 구분)를 높임.
-    // 이미 충분히 크면 원본을 그대로 반환.
-    private static func upscaleForOCR(_ image: CGImage) -> CGImage {
-        let maxDim = max(image.width, image.height)
-        guard maxDim > 0 else { return image }
-        let scale = min(3.0, max(1.0, 2000.0 / Double(maxDim)))
-        guard scale > 1.01 else { return image }
-        let w = Int(Double(image.width) * scale)
-        let h = Int(Double(image.height) * scale)
-        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8,
-                                  bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
-                                  bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
-            return image
-        }
-        ctx.interpolationQuality = .high
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
-        return ctx.makeImage() ?? image
     }
 
     private func postCmdVAfterModifierRelease(expectedChangeCount: Int, settle: TimeInterval = 0) {
