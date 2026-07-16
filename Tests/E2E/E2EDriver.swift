@@ -286,6 +286,17 @@ if let got6 = waitPaste(marker: nil, timeout: 15) {
     check("OCR 결과 도착", false, "15초 내 붙여넣기 없음")
 }
 
+// ── S13: 온디맨드 원본 복원 — OCR 붙여넣기 후 메뉴 동작으로 스크린샷 복귀 ──────
+print("S13 온디맨드 원본 복원 (S6 직후, 메뉴 동작 모사)")
+// S6 직후 상태: 클립보드 = OCR 텍스트, 앱이 원본 PNG를 보관 중
+let ccBeforeRestore = pb.changeCount
+DistributedNotificationCenter.default().postNotificationName(
+    Notification.Name("com.haseong23.plainpaste.test.restore"),
+    object: nil, userInfo: nil, deliverImmediately: true)
+check("복원으로 클립보드 변경됨", waitUntil(5) { pb.changeCount != ccBeforeRestore })
+check("원본 PNG 플레이버 복귀", pb.data(forType: .png) != nil)
+check("OCR 텍스트는 제거됨", pb.string(forType: .string) == nil)
+
 // ── S7: 작은 한글 이미지 → 업스케일 경유 OCR (C3) ────────────────────────────
 print("S7 작은 한글 이미지 OCR (C3, 업스케일 경로)")
 if ProcessInfo.processInfo.isOperatingSystemAtLeast(

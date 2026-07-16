@@ -4,7 +4,7 @@
 #   ./Tests/e2e.sh
 #
 # 하는 일: 빌드 → 기존 인스턴스 정리 → 테스트 훅 켠 앱 + PasteCatcher 실행
-#          → E2EDriver로 시나리오 S1~S12 실행 → 정리(클립보드·기존 앱 복귀)
+#          → E2EDriver로 시나리오 S1~S13 실행 → 정리(클립보드·기존 앱 복귀)
 #
 # 1회 설정(최초 1번만, TESTPLAN.md 참고):
 #   1. ./Tests/make_signing_cert.sh   — 서명 고정(재빌드해도 권한 유지)

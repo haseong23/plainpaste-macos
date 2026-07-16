@@ -8,7 +8,7 @@ import ServiceManagement
 
 // MARK: - 앱 본체
 
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuItemValidation {
     private var statusItem: NSStatusItem!
     private var hotKeyRef: EventHotKeyRef?
     private var shortcut = Shortcut.load()
@@ -16,7 +16,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
+    // 서식/이미지를 벗겨 붙여넣기 전의 클립보드 원본 (아이템별 플레이버 → 데이터).
+    // 메뉴 "직전 원본을 클립보드로 복원"으로만 되살린다 — 자동(지연) 복원은 ⌘C 경합(B2)으로
+    // 두 번 회수된 전력이 있어, 경합이 원천 불가능한 사용자 주도 방식만 제공한다.
+    private var savedOriginal: [[NSPasteboard.PasteboardType: Data]]?
+
     private let shortcutInfoItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let restoreItem = NSMenuItem(title: "직전 원본을 클립보드로 복원",
+                                         action: #selector(restoreOriginal), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "로그인 시 자동 시작",
                                        action: #selector(toggleLogin), keyEquivalent: "")
 
@@ -42,6 +49,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         ) { [weak self] _ in
             self?.smartPaste()
         }
+        // 메뉴 "직전 원본을 클립보드로 복원" 동작 모사 (E2E S13)
+        DistributedNotificationCenter.default().addObserver(
+            forName: Notification.Name("com.haseong23.plainpaste.test.restore"),
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            self?.restoreOriginal()
+        }
     }
 
     // MARK: 메뉴바
@@ -66,6 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                                   action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
+
+        restoreItem.target = self
+        menu.addItem(restoreItem)
 
         let change = NSMenuItem(title: "단축키 변경…",
                                 action: #selector(changeShortcut), keyEquivalent: "")
@@ -192,6 +209,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let pb = NSPasteboard.general
         guard pb.changeCount == sourceChangeCount else { return }
 
+        savedOriginal = snapshotPasteboard(pb)   // 덮어쓰기 전 원본 보관 (메뉴로 온디맨드 복원)
+
         pb.clearContents()
         pb.setString(text, forType: .string)
         let plainChangeCount = pb.changeCount
@@ -200,6 +219,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         // 대상 앱이 엉뚱한 조합(예: ⌘⇧V)을 받게 됨 → 모두 놓일 때까지 대기 후 전송.
         // settle: 방금 쓴 플레인 텍스트가 대상 앱에 반영되도록 아주 짧게 대기 후 ⌘V 전송.
         postCmdVAfterModifierRelease(expectedChangeCount: plainChangeCount, settle: 0.05)
+    }
+
+    // MARK: 원본 보관·복원 (온디맨드)
+
+    // 클립보드 전체 스냅샷 — 모든 아이템·플레이버를 데이터로 보관.
+    // 큰 스크린샷(TIFF+PNG)은 수십 MB일 수 있으나 1개만 유지하고 복원·교체 시 해제된다.
+    private func snapshotPasteboard(_ pb: NSPasteboard) -> [[NSPasteboard.PasteboardType: Data]]? {
+        guard let items = pb.pasteboardItems, !items.isEmpty else { return nil }
+        let snapshot = items.map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { dict, type in
+                if let data = item.data(forType: type) { dict[type] = data }
+            }
+        }.filter { !$0.isEmpty }
+        return snapshot.isEmpty ? nil : snapshot
+    }
+
+    @objc private func restoreOriginal() {
+        guard let saved = savedOriginal else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects(saved.map { flavors in
+            let item = NSPasteboardItem()
+            for (type, data) in flavors { item.setData(data, forType: type) }
+            return item
+        })
+        savedOriginal = nil   // 클립보드가 다시 원본을 가짐 — 보관본 해제, 메뉴 비활성화
+    }
+
+    // 원본 보관 중일 때만 복원 메뉴 활성화
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if menuItem.action == #selector(restoreOriginal) { return savedOriginal != nil }
+        return true
     }
 
     // 클립보드에서 이미지를 CGImage로 획득 (비트맵 또는 파일 URL)
