@@ -60,6 +60,27 @@ enum CoreTests {
                     "modifiers 저장·복원 왕복")
         d.removePersistentDomain(forName: suiteName)
 
+        // MARK: 핀 단축키 — keyPrefix로 붙여넣기 단축키와 독립 저장 (창 항상 위 고정)
+        // 핵심 불변식: 두 단축키는 서로 다른 네임스페이스라 한쪽 저장이 다른 쪽을 오염시키지 않는다.
+        d.removePersistentDomain(forName: suiteName)
+        expect(Shortcut.load(from: d, keyPrefix: "pinShortcut", fallback: .pinDefault) == .pinDefault,
+               "핀: 저장값 없으면 pinDefault(⌃⌥⌘T) 반환")
+        expect(Shortcut.default != Shortcut.pinDefault,
+               "기본 붙여넣기(⌃⌥⌘V)·핀(⌃⌥⌘T) 단축키는 서로 다름 — 등록 충돌 없음")
+        Shortcut.default.save(to: d)                            // shortcut* 에 저장
+        Shortcut.pinDefault.save(to: d, keyPrefix: "pinShortcut")  // pinShortcut* 에 저장
+        expect(Shortcut.load(from: d) == .default,
+               "붙여넣기 키는 shortcut* 에서만 읽음 (핀 저장의 영향 없음)")
+        expect(Shortcut.load(from: d, keyPrefix: "pinShortcut", fallback: .default) == .pinDefault,
+               "핀 키는 pinShortcut* 에서만 읽음 (독립 네임스페이스)")
+        Shortcut(keyCode: 50, modifiers: UInt32(controlKey)).save(to: d, keyPrefix: "pinShortcut")
+        expect(Shortcut.load(from: d, keyPrefix: "pinShortcut", fallback: .pinDefault)
+               == Shortcut(keyCode: 50, modifiers: UInt32(controlKey)),
+               "핀 단축키 저장·복원 왕복 (사용자 재지정 대비)")
+        expect(Shortcut.load(from: d) == .default,
+               "핀 단축키를 바꿔도 붙여넣기 단축키는 그대로")
+        d.removePersistentDomain(forName: suiteName)
+
         // MARK: Shortcut.display — modifier 순서(⌃⌥⇧⌘) + 레이아웃 독립 특수키
         expectEqual(Shortcut(keyCode: 49,
                              modifiers: UInt32(controlKey | optionKey | shiftKey | cmdKey)).display,

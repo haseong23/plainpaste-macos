@@ -13,6 +13,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var hotKeyRef: EventHotKeyRef?
     private var shortcut = Shortcut.load()
 
+    // 창 항상 위 고정 (별도 전역 단축키 · AX 재-앞으로). 붙여넣기와 독립.
+    private let pinner = WindowPinner()
+    private var pinHotKeyRef: EventHotKeyRef?
+    private let pinShortcut = Shortcut.load(keyPrefix: "pinShortcut", fallback: .pinDefault)
+
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
@@ -26,11 +31,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                                          action: #selector(restoreOriginal), keyEquivalent: "")
     private let loginItem = NSMenuItem(title: "로그인 시 자동 시작",
                                        action: #selector(toggleLogin), keyEquivalent: "")
+    private let pinItem = NSMenuItem(title: "창 항상 위 고정",
+                                     action: #selector(togglePinFromMenu), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        pinner.onChange = { [weak self] in self?.refreshMenu() }
         setupStatusItem()
         installHotKeyHandler()
         registerHotKey()
+        registerPinHotKey()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
         setupTestHookIfEnabled()
@@ -90,6 +99,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(change)
 
         menu.addItem(.separator())
+        pinItem.target = self
+        menu.addItem(pinItem)
+
+        menu.addItem(.separator())
         loginItem.target = self
         menu.addItem(loginItem)
 
@@ -103,6 +116,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private func refreshMenu() {
         shortcutInfoItem.title = "현재 단축키: \(shortcut.display)"
+
+        if pinner.isPinned {
+            let name = pinner.pinnedTitle.map { " — \($0)" } ?? ""
+            pinItem.title = "창 고정 해제\(name)"
+            pinItem.state = .on
+        } else {
+            pinItem.title = "창 항상 위 고정  (\(pinShortcut.display))"
+            pinItem.state = .off
+        }
+
         if #available(macOS 13.0, *) {
             loginItem.isHidden = false
             loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -116,9 +139,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func installHotKeyHandler() {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                  eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData -> OSStatus in
-            guard let userData else { return noErr }
-            Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue().smartPaste()
+        // 단축키가 여러 개이므로 EventHotKeyID.id로 어느 조합이 눌렸는지 분기한다.
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
+            guard let userData, let event else { return noErr }
+            var hkID = EventHotKeyID()
+            let status = GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                                           EventParamType(typeEventHotKeyID), nil,
+                                           MemoryLayout<EventHotKeyID>.size, nil, &hkID)
+            guard status == noErr else { return noErr }
+            let delegate = Unmanaged<AppDelegate>.fromOpaque(userData).takeUnretainedValue()
+            switch hkID.id {
+            case 1: delegate.smartPaste()
+            case 2: delegate.togglePin()
+            default: break
+            }
             return noErr
         }, 1, &spec, Unmanaged.passUnretained(self).toOpaque(), nil)
     }
@@ -139,6 +173,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
             hotKeyRef = nil
+        }
+    }
+
+    // 창 고정 단축키 (id 2). 붙여넣기 단축키와 signature는 같고 id로만 구분.
+    private func registerPinHotKey() {
+        if let ref = pinHotKeyRef { UnregisterEventHotKey(ref); pinHotKeyRef = nil }
+        let hotKeyID = EventHotKeyID(signature: OSType(0x504C_5054), id: 2) // 'PLPT'
+        let status = RegisterEventHotKey(pinShortcut.keyCode, pinShortcut.modifiers, hotKeyID,
+                                         GetApplicationEventTarget(), 0, &pinHotKeyRef)
+        if status != noErr {
+            pinHotKeyRef = nil
+            // 핀 단축키는 부가 기능이라 모달 경고 대신 콘솔에만 남긴다(붙여넣기 흐름 방해 방지).
+            FileHandle.standardError.write(
+                Data("PlainPaste: 창 고정 단축키(\(pinShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
         }
     }
 
@@ -193,6 +241,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         // 3) 붙여넣을 게 없음
         NSSound.beep()
     }
+
+    // MARK: 창 항상 위 고정 토글 (단축키 id 2 / 메뉴)
+
+    func togglePin() {
+        guard ensureAccessibility(prompt: true) else {
+            showAccessibilityAlert()   // 다른 앱 창 정보를 읽으려면 손쉬운 사용 권한 필요
+            return
+        }
+        pinner.toggle()
+    }
+
+    @objc private func togglePinFromMenu() { togglePin() }
 
     // 클립보드에 지워야 할 실제 서식(리치 텍스트)이 들어 있는지 확인
     private func pasteboardHasRichText(_ pb: NSPasteboard) -> Bool {

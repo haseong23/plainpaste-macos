@@ -8,22 +8,31 @@ import Carbon
 
 // MARK: 단축키 모델 (Carbon modifier 기준으로 저장)
 
-struct Shortcut {
+struct Shortcut: Equatable {
     var keyCode: UInt32
     var modifiers: UInt32   // Carbon: cmdKey/shiftKey/optionKey/controlKey
 
+    // 붙여넣기(smartPaste) 기본 단축키 — ⌃⌥⌘V
     static let `default` = Shortcut(keyCode: UInt32(kVK_ANSI_V),
                                     modifiers: UInt32(cmdKey | optionKey | controlKey))
 
-    static func load(from d: UserDefaults = .standard) -> Shortcut {
-        guard d.object(forKey: "shortcutKeyCode") != nil else { return .default }
-        return Shortcut(keyCode: UInt32(d.integer(forKey: "shortcutKeyCode")),
-                        modifiers: UInt32(d.integer(forKey: "shortcutModifiers")))
+    // 창 항상 위 고정(WindowPinner) 기본 단축키 — ⌃⌥⌘T (T = Top)
+    static let pinDefault = Shortcut(keyCode: UInt32(kVK_ANSI_T),
+                                     modifiers: UInt32(cmdKey | optionKey | controlKey))
+
+    // keyPrefix로 여러 단축키를 독립 네임스페이스에 저장한다
+    // (붙여넣기="shortcut", 핀="pinShortcut"). 저장값이 없으면 fallback 반환.
+    static func load(from d: UserDefaults = .standard,
+                     keyPrefix: String = "shortcut",
+                     fallback: Shortcut = .default) -> Shortcut {
+        guard d.object(forKey: keyPrefix + "KeyCode") != nil else { return fallback }
+        return Shortcut(keyCode: UInt32(d.integer(forKey: keyPrefix + "KeyCode")),
+                        modifiers: UInt32(d.integer(forKey: keyPrefix + "Modifiers")))
     }
 
-    func save(to d: UserDefaults = .standard) {
-        d.set(Int(keyCode), forKey: "shortcutKeyCode")
-        d.set(Int(modifiers), forKey: "shortcutModifiers")
+    func save(to d: UserDefaults = .standard, keyPrefix: String = "shortcut") {
+        d.set(Int(keyCode), forKey: keyPrefix + "KeyCode")
+        d.set(Int(modifiers), forKey: keyPrefix + "Modifiers")
     }
 
     var display: String {

@@ -9,7 +9,7 @@ rm -rf dist
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-swiftc -O Sources/PlainPasteCore.swift Sources/OCREngine.swift Sources/main.swift -o "$APP/Contents/MacOS/PlainPaste"
+swiftc -O Sources/PlainPasteCore.swift Sources/OCREngine.swift Sources/WindowPinner.swift Sources/main.swift -o "$APP/Contents/MacOS/PlainPaste"
 cp Info.plist "$APP/Contents/Info.plist"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 
