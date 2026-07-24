@@ -20,6 +20,10 @@ struct Shortcut: Equatable {
     static let pinDefault = Shortcut(keyCode: UInt32(kVK_ANSI_T),
                                      modifiers: UInt32(cmdKey | optionKey | controlKey))
 
+    // 화면 영역 텍스트 추출(TextExtractor) 기본 단축키 — ⌃⌥⌘O (O = OCR)
+    static let ocrDefault = Shortcut(keyCode: UInt32(kVK_ANSI_O),
+                                     modifiers: UInt32(cmdKey | optionKey | controlKey))
+
     // keyPrefix로 여러 단축키를 독립 네임스페이스에 저장한다
     // (붙여넣기="shortcut", 핀="pinShortcut"). 저장값이 없으면 fallback 반환.
     static func load(from d: UserDefaults = .standard,

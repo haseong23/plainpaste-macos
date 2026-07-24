@@ -18,6 +18,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var pinHotKeyRef: EventHotKeyRef?
     private let pinShortcut = Shortcut.load(keyPrefix: "pinShortcut", fallback: .pinDefault)
 
+    // 화면 영역 텍스트 추출 (별도 전역 단축키 · 기본 OCR 파이프라인 재활용).
+    private let textExtractor = TextExtractor()
+    private var ocrHotKeyRef: EventHotKeyRef?
+    private let ocrShortcut = Shortcut.load(keyPrefix: "ocrShortcut", fallback: .ocrDefault)
+
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
@@ -40,6 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         installHotKeyHandler()
         registerHotKey()
         registerPinHotKey()
+        registerTextExtractorHotKey()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
         setupTestHookIfEnabled()
@@ -89,6 +95,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                                   action: nil, keyEquivalent: "")
         hintItem.isEnabled = false
         menu.addItem(hintItem)
+
+        let extractItem = NSMenuItem(title: "화면에서 텍스트 추출  (\(ocrShortcut.display))",
+                                     action: #selector(extractTextFromMenu), keyEquivalent: "")
+        extractItem.target = self
+        menu.addItem(extractItem)
 
         restoreItem.target = self
         menu.addItem(restoreItem)
@@ -151,6 +162,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             switch hkID.id {
             case 1: delegate.smartPaste()
             case 2: delegate.togglePin()
+            case 3: delegate.extractText()
             default: break
             }
             return noErr
@@ -189,6 +201,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 Data("PowerMacToys: 창 고정 단축키(\(pinShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
         }
     }
+
+    // 텍스트 추출 단축키 (id 3). 화면 영역 OCR → 클립보드.
+    private func registerTextExtractorHotKey() {
+        if let ref = ocrHotKeyRef { UnregisterEventHotKey(ref); ocrHotKeyRef = nil }
+        let hotKeyID = EventHotKeyID(signature: OSType(0x504C_5054), id: 3) // 'PLPT'
+        let status = RegisterEventHotKey(ocrShortcut.keyCode, ocrShortcut.modifiers, hotKeyID,
+                                         GetApplicationEventTarget(), 0, &ocrHotKeyRef)
+        if status != noErr {
+            ocrHotKeyRef = nil
+            FileHandle.standardError.write(
+                Data("PowerMacToys: 텍스트 추출 단축키(\(ocrShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
+        }
+    }
+
+    // 화면 영역을 캡처해 OCR한 뒤 클립보드에 복사. 키 입력을 보내지 않으므로 손쉬운 사용
+    // 권한은 불필요(캡처엔 화면 기록 권한이 최초 1회 필요할 수 있음 — screencapture가 안내).
+    func extractText() { textExtractor.capture() }
+
+    @objc private func extractTextFromMenu() { extractText() }
 
     // MARK: 핵심 기능 — 클립보드 내용에 따라 자동 분기 (글자→플레인, 이미지→OCR)
 
