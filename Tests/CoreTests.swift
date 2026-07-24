@@ -166,6 +166,25 @@ enum CoreTests {
         expect(round?.r == 51 && round?.g == 102 && round?.b == 153,
                "hexFromComponents ↔ rgbFromHex 왕복 (0.2/0.4/0.6 → 51/102/153)")
 
+        // MARK: 고급 붙여넣기 변환 (Advanced Paste)
+        expectEqual(transformUppercase("aB c"), "AB C", "대문자")
+        expectEqual(transformLowercase("aB C"), "ab c", "소문자")
+        expectEqual(transformTrim("  hi \n"), "hi", "양끝 공백/개행 트림")
+        expectEqual(transformCollapseWhitespace("a   b\n\tc"), "a b c",
+                    "연속 공백/탭/개행 → 단일 공백")
+        expectEqual(transformJoinLines("a\n\n  b \n c"), "a b c",
+                    "여러 줄 → 한 줄(빈 줄 제거·줄별 트림)")
+        expectEqual(transformBase64Encode("hi"), "aGk=", "Base64 인코딩")
+        expectEqual(transformBase64Decode("aGk="), "hi", "Base64 디코딩")
+        expect(transformBase64Decode("!!!not base64!!!") == nil, "잘못된 Base64 → nil")
+        // 왕복: 한글 포함 UTF-8도 안전
+        expectEqual(transformBase64Decode(transformBase64Encode("안녕 café")), "안녕 café",
+                    "Base64 왕복(UTF-8 멀티바이트)")
+        expectEqual(transformURLEncode("a b"), "a%20b", "URL 인코딩(공백 → %20)")
+        expectEqual(transformURLDecode("a%20b"), "a b", "URL 디코딩")
+        expect(transformURLDecode("bad%zz") == nil, "잘못된 퍼센트 인코딩 → nil")
+        expect(!pasteTransforms.isEmpty, "고급 붙여넣기 레지스트리 비어있지 않음")
+
         // MARK: 결과
         print("")
         print(failures == 0

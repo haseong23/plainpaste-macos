@@ -185,3 +185,59 @@ func rgbFromHex(_ hex: String) -> (r: Int, g: Int, b: Int)? {
     guard s.count == 6, let value = Int(s, radix: 16) else { return nil }
     return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
 }
+
+// MARK: 고급 붙여넣기 변환 (Advanced Paste — 순수 로직)
+//
+// 클립보드 텍스트를 여러 포맷으로 변환한다. 반환 nil = 변환 실패(예: 잘못된 Base64) → 호출부에서 beep.
+// 모두 부수효과 없는 순수 함수라 유닛테스트로 고정한다(CoreTests).
+
+func transformUppercase(_ s: String) -> String { s.uppercased() }
+func transformLowercase(_ s: String) -> String { s.lowercased() }
+func transformTrim(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+
+// 연속된 공백·탭·개행을 단일 공백으로 합치고 양끝을 정리
+func transformCollapseWhitespace(_ s: String) -> String {
+    s.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+}
+
+// 여러 줄 → 한 줄: 각 줄을 트림하고 빈 줄은 버린 뒤 공백으로 결합
+func transformJoinLines(_ s: String) -> String {
+    s.replacingOccurrences(of: "\r\n", with: "\n")
+        .split(separator: "\n", omittingEmptySubsequences: false)
+        .map { $0.trimmingCharacters(in: .whitespaces) }
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+}
+
+func transformBase64Encode(_ s: String) -> String { Data(s.utf8).base64EncodedString() }
+
+func transformBase64Decode(_ s: String) -> String? {
+    let trimmed = s.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard let data = Data(base64Encoded: trimmed),
+          let decoded = String(data: data, encoding: .utf8) else { return nil }
+    return decoded
+}
+
+func transformURLEncode(_ s: String) -> String {
+    s.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? s
+}
+
+func transformURLDecode(_ s: String) -> String? { s.removingPercentEncoding }
+
+// 메뉴 구성용 레지스트리 — main.swift가 이 순서대로 "고급 붙여넣기" 서브메뉴를 만든다.
+struct PasteTransform {
+    let title: String
+    let apply: (String) -> String?   // nil = 변환 실패
+}
+
+let pasteTransforms: [PasteTransform] = [
+    PasteTransform(title: "대문자로")            { transformUppercase($0) },
+    PasteTransform(title: "소문자로")            { transformLowercase($0) },
+    PasteTransform(title: "양끝 공백 다듬기")     { transformTrim($0) },
+    PasteTransform(title: "여러 공백 → 하나로")   { transformCollapseWhitespace($0) },
+    PasteTransform(title: "여러 줄 → 한 줄로")    { transformJoinLines($0) },
+    PasteTransform(title: "Base64 인코딩")       { transformBase64Encode($0) },
+    PasteTransform(title: "Base64 디코딩")       { transformBase64Decode($0) },
+    PasteTransform(title: "URL 인코딩")          { transformURLEncode($0) },
+    PasteTransform(title: "URL 디코딩")          { transformURLDecode($0) },
+]

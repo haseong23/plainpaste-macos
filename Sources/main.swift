@@ -124,6 +124,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         extractItem.target = self
         menu.addItem(extractItem)
 
+        // 고급 붙여넣기 — 클립보드 텍스트를 포맷 변환(레지스트리 순서대로 서브메뉴 구성).
+        let advParent = NSMenuItem(title: "고급 붙여넣기 (클립보드 변환)",
+                                   action: nil, keyEquivalent: "")
+        let advMenu = NSMenu()
+        for (idx, t) in pasteTransforms.enumerated() {
+            let item = NSMenuItem(title: t.title,
+                                  action: #selector(applyPasteTransform(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = idx
+            advMenu.addItem(item)
+        }
+        advParent.submenu = advMenu
+        menu.addItem(advParent)
+
         restoreItem.target = self
         menu.addItem(restoreItem)
 
@@ -281,6 +295,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func extractText() { textExtractor.capture() }
 
     @objc private func extractTextFromMenu() { extractText() }
+
+    // MARK: 고급 붙여넣기 — 클립보드 텍스트를 변환해 클립보드에 되쓴다.
+    // 메뉴 클릭 직후 합성 ⌘V는 포커스 복귀 타이밍이 불안정하므로, 클립보드만 바꾸고
+    // 사용자가 원할 때 ⌘V 하도록 한다(smartPaste의 자동 붙여넣기와 역할이 다름).
+    @objc private func applyPasteTransform(_ sender: NSMenuItem) {
+        guard let idx = sender.representedObject as? Int, idx < pasteTransforms.count else { return }
+        let pb = NSPasteboard.general
+        guard let s = pb.string(forType: .string), !s.isEmpty else {
+            NSSound.beep()   // 클립보드에 변환할 텍스트가 없음
+            return
+        }
+        guard let result = pasteTransforms[idx].apply(s) else {
+            NSSound.beep()   // 변환 실패(예: 잘못된 Base64/URL)
+            return
+        }
+        pb.clearContents()
+        pb.setString(result, forType: .string)
+    }
 
     // 색상 추출 단축키 (id 4). NSColorSampler → HEX 클립보드.
     private func registerColorPickerHotKey() {
