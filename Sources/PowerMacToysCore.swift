@@ -24,6 +24,10 @@ struct Shortcut: Equatable {
     static let ocrDefault = Shortcut(keyCode: UInt32(kVK_ANSI_O),
                                      modifiers: UInt32(cmdKey | optionKey | controlKey))
 
+    // 화면 색상 추출(ColorPicker) 기본 단축키 — ⌃⌥⌘C (C = Color)
+    static let colorDefault = Shortcut(keyCode: UInt32(kVK_ANSI_C),
+                                       modifiers: UInt32(cmdKey | optionKey | controlKey))
+
     // keyPrefix로 여러 단축키를 독립 네임스페이스에 저장한다
     // (붙여넣기="shortcut", 핀="pinShortcut"). 저장값이 없으면 fallback 반환.
     static func load(from d: UserDefaults = .standard,
@@ -165,4 +169,19 @@ func looksLikeCode(_ s: String) -> Bool {
     if text.hasPrefix("$ ") || text.contains("\n$ ") { strongHits += 1 }   // 쉘 프롬프트
 
     return density >= 0.06 || strongHits >= 2 || (strongHits >= 1 && text.count <= 120)
+}
+
+// MARK: 색상 HEX 변환 (ColorPicker — 순수 로직)
+
+// sRGB 0~1 성분 → "#RRGGBB". 각 채널은 반올림 후 [0,255]로 클램프.
+func hexFromComponents(_ r: Double, _ g: Double, _ b: Double) -> String {
+    func channel(_ v: Double) -> Int { max(0, min(255, Int((v * 255).rounded()))) }
+    return String(format: "#%02X%02X%02X", channel(r), channel(g), channel(b))
+}
+
+// "#RRGGBB" 또는 "RRGGBB" → (r,g,b) 0~255. 6자리 16진수가 아니면 nil (스와치 그리기용).
+func rgbFromHex(_ hex: String) -> (r: Int, g: Int, b: Int)? {
+    let s = hex.hasPrefix("#") ? String(hex.dropFirst()) : hex
+    guard s.count == 6, let value = Int(s, radix: 16) else { return nil }
+    return ((value >> 16) & 0xFF, (value >> 8) & 0xFF, value & 0xFF)
 }

@@ -26,6 +26,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     // 잠자기 방지 (IOKit 전원 어서션 · 메뉴 토글).
     private let sleepPreventer = SleepPreventer()
 
+    // 화면 색상 추출 (별도 전역 단축키 · NSColorSampler → HEX 클립보드).
+    private let colorPicker = ColorPicker()
+    private var colorHotKeyRef: EventHotKeyRef?
+    private let colorShortcut = Shortcut.load(keyPrefix: "colorShortcut", fallback: .colorDefault)
+
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
@@ -51,14 +56,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let awakeDisplayItem = NSMenuItem(title: "켜기 (화면도 켜둠)",
                                               action: #selector(setAwakeDisplay), keyEquivalent: "")
 
+    // 화면 색상 추출 + 최근 색상 서브메뉴(refreshMenu에서 재구성).
+    private let colorHistoryParent = NSMenuItem(title: "최근 색상", action: nil, keyEquivalent: "")
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         pinner.onChange = { [weak self] in self?.refreshMenu() }
         sleepPreventer.onChange = { [weak self] in self?.refreshMenu() }
+        colorPicker.onChange = { [weak self] in self?.refreshMenu() }
         setupStatusItem()
         installHotKeyHandler()
         registerHotKey()
         registerPinHotKey()
         registerTextExtractorHotKey()
+        registerColorPickerHotKey()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
         setupTestHookIfEnabled()
@@ -134,6 +144,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         awakeParent.submenu = awakeMenu
         menu.addItem(awakeParent)
 
+        let colorItem = NSMenuItem(title: "화면 색상 추출  (\(colorShortcut.display))",
+                                   action: #selector(pickColorFromMenu), keyEquivalent: "")
+        colorItem.target = self
+        menu.addItem(colorItem)
+        menu.addItem(colorHistoryParent)   // 서브메뉴·표시 여부는 refreshMenu에서 갱신
+
         menu.addItem(.separator())
         loginItem.target = self
         menu.addItem(loginItem)
@@ -163,6 +179,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         awakeSystemItem.state = sleepPreventer.mode == .system ? .on : .off
         awakeDisplayItem.state = sleepPreventer.mode == .displayOn ? .on : .off
 
+        // 최근 색상: 히스토리가 비면 숨기고, 있으면 스와치와 함께 서브메뉴 재구성.
+        let history = colorPicker.history
+        colorHistoryParent.isHidden = history.isEmpty
+        if history.isEmpty {
+            colorHistoryParent.submenu = nil
+        } else {
+            let sub = NSMenu()
+            for hex in history {
+                let item = NSMenuItem(title: hex, action: #selector(copyHistoryColor(_:)),
+                                      keyEquivalent: "")
+                item.target = self
+                item.representedObject = hex
+                item.image = colorSwatch(hex)
+                sub.addItem(item)
+            }
+            colorHistoryParent.submenu = sub
+        }
+
         if #available(macOS 13.0, *) {
             loginItem.isHidden = false
             loginItem.state = SMAppService.mainApp.status == .enabled ? .on : .off
@@ -189,6 +223,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             case 1: delegate.smartPaste()
             case 2: delegate.togglePin()
             case 3: delegate.extractText()
+            case 4: delegate.pickColor()
             default: break
             }
             return noErr
@@ -246,6 +281,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     func extractText() { textExtractor.capture() }
 
     @objc private func extractTextFromMenu() { extractText() }
+
+    // 색상 추출 단축키 (id 4). NSColorSampler → HEX 클립보드.
+    private func registerColorPickerHotKey() {
+        if let ref = colorHotKeyRef { UnregisterEventHotKey(ref); colorHotKeyRef = nil }
+        let hotKeyID = EventHotKeyID(signature: OSType(0x504C_5054), id: 4) // 'PLPT'
+        let status = RegisterEventHotKey(colorShortcut.keyCode, colorShortcut.modifiers, hotKeyID,
+                                         GetApplicationEventTarget(), 0, &colorHotKeyRef)
+        if status != noErr {
+            colorHotKeyRef = nil
+            FileHandle.standardError.write(
+                Data("PowerMacToys: 색상 추출 단축키(\(colorShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
+        }
+    }
+
+    func pickColor() { colorPicker.pick() }
+
+    @objc private func pickColorFromMenu() { pickColor() }
+
+    // 최근 색상 항목 클릭 → 그 HEX를 다시 클립보드로 복사.
+    @objc private func copyHistoryColor(_ sender: NSMenuItem) {
+        guard let hex = sender.representedObject as? String else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.setString(hex, forType: .string)
+    }
+
+    // 메뉴 항목용 작은 색상 스와치 (HEX가 유효할 때만).
+    private func colorSwatch(_ hex: String) -> NSImage? {
+        guard let rgb = rgbFromHex(hex) else { return nil }
+        let color = NSColor(srgbRed: CGFloat(rgb.r) / 255, green: CGFloat(rgb.g) / 255,
+                            blue: CGFloat(rgb.b) / 255, alpha: 1)
+        let size = NSSize(width: 14, height: 14)
+        let img = NSImage(size: size)
+        img.lockFocus()
+        color.setFill()
+        NSBezierPath(roundedRect: NSRect(origin: .zero, size: size),
+                     xRadius: 3, yRadius: 3).fill()
+        img.unlockFocus()
+        return img
+    }
 
     // MARK: 핵심 기능 — 클립보드 내용에 따라 자동 분기 (글자→플레인, 이미지→OCR)
 

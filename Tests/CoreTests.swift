@@ -148,6 +148,24 @@ enum CoreTests {
                "긴 산문 속 URL 하나 → 산문 유지 (전체 교정을 끄지 않음)")
         expect(!looksLikeCode("no"), "너무 짧은 텍스트 → 산문")
 
+        // MARK: 색상 HEX 변환 (ColorPicker)
+        expectEqual(hexFromComponents(0, 0, 0), "#000000", "검정")
+        expectEqual(hexFromComponents(1, 1, 1), "#FFFFFF", "흰색")
+        expectEqual(hexFromComponents(1, 0, 0), "#FF0000", "빨강")
+        expectEqual(hexFromComponents(0, 1, 0), "#00FF00", "초록")
+        expectEqual(hexFromComponents(0, 0, 1), "#0000FF", "파랑")
+        expectEqual(hexFromComponents(-0.5, 2.0, 0.5), "#00FF80",
+                    "범위 밖 성분은 [0,255] 클램프 + 반올림")
+        expectEqual(rgbFromHex("#FF0000")?.r, 255, "HEX 파싱 R")
+        expectEqual(rgbFromHex("00FF00")?.g, 255, "# 없어도 파싱, G")
+        expectEqual(rgbFromHex("#0000ff")?.b, 255, "소문자 HEX 파싱, B")
+        expect(rgbFromHex("#FFF") == nil, "3자리 축약형은 미지원 → nil")
+        expect(rgbFromHex("nothex") == nil, "16진수가 아니면 nil")
+        // 왕복: 성분 → HEX → 성분
+        let round = rgbFromHex(hexFromComponents(0.2, 0.4, 0.6))
+        expect(round?.r == 51 && round?.g == 102 && round?.b == 153,
+               "hexFromComponents ↔ rgbFromHex 왕복 (0.2/0.4/0.6 → 51/102/153)")
+
         // MARK: 결과
         print("")
         print(failures == 0
