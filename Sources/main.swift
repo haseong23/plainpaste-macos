@@ -23,6 +23,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var ocrHotKeyRef: EventHotKeyRef?
     private let ocrShortcut = Shortcut.load(keyPrefix: "ocrShortcut", fallback: .ocrDefault)
 
+    // 잠자기 방지 (IOKit 전원 어서션 · 메뉴 토글).
+    private let sleepPreventer = SleepPreventer()
+
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
@@ -39,8 +42,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private let pinItem = NSMenuItem(title: "창 항상 위 고정",
                                      action: #selector(togglePinFromMenu), keyEquivalent: "")
 
+    // 잠자기 방지 — 부모 항목 + 라디오 서브메뉴(끔/시스템/화면 포함)
+    private let awakeParent = NSMenuItem(title: "잠자기 방지", action: nil, keyEquivalent: "")
+    private let awakeOffItem = NSMenuItem(title: "끔",
+                                          action: #selector(setAwakeOff), keyEquivalent: "")
+    private let awakeSystemItem = NSMenuItem(title: "켜기 (화면은 꺼질 수 있음)",
+                                             action: #selector(setAwakeSystem), keyEquivalent: "")
+    private let awakeDisplayItem = NSMenuItem(title: "켜기 (화면도 켜둠)",
+                                              action: #selector(setAwakeDisplay), keyEquivalent: "")
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         pinner.onChange = { [weak self] in self?.refreshMenu() }
+        sleepPreventer.onChange = { [weak self] in self?.refreshMenu() }
         setupStatusItem()
         installHotKeyHandler()
         registerHotKey()
@@ -113,6 +126,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         pinItem.target = self
         menu.addItem(pinItem)
 
+        let awakeMenu = NSMenu()
+        for item in [awakeOffItem, awakeSystemItem, awakeDisplayItem] {
+            item.target = self
+            awakeMenu.addItem(item)
+        }
+        awakeParent.submenu = awakeMenu
+        menu.addItem(awakeParent)
+
         menu.addItem(.separator())
         loginItem.target = self
         menu.addItem(loginItem)
@@ -136,6 +157,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             pinItem.title = "창 항상 위 고정  (\(pinShortcut.display))"
             pinItem.state = .off
         }
+
+        awakeParent.state = sleepPreventer.mode == .off ? .off : .on   // 활성 시 부모에 체크
+        awakeOffItem.state = sleepPreventer.mode == .off ? .on : .off
+        awakeSystemItem.state = sleepPreventer.mode == .system ? .on : .off
+        awakeDisplayItem.state = sleepPreventer.mode == .displayOn ? .on : .off
 
         if #available(macOS 13.0, *) {
             loginItem.isHidden = false
@@ -284,6 +310,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     }
 
     @objc private func togglePinFromMenu() { togglePin() }
+
+    // MARK: 잠자기 방지 토글 (메뉴 라디오)
+
+    @objc private func setAwakeOff()     { sleepPreventer.setMode(.off) }
+    @objc private func setAwakeSystem()  { sleepPreventer.setMode(.system) }
+    @objc private func setAwakeDisplay() { sleepPreventer.setMode(.displayOn) }
 
     // 클립보드에 지워야 할 실제 서식(리치 텍스트)이 들어 있는지 확인
     private func pasteboardHasRichText(_ pb: NSPasteboard) -> Bool {

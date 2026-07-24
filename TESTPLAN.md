@@ -101,6 +101,14 @@ rewrite/OCR 경로는 클립보드를 플레인 텍스트로 덮어쓰되, **덮
 - [ ] F2. 메뉴바 아이콘(doc.plaintext), "현재 단축키: …" 라벨 정확.
 - [ ] F3. Dock 아이콘 없이 메뉴바 전용(LSUIElement).
 
+### I. 잠자기 방지 (SleepPreventer · IOKit 전원 어서션)
+IOKit 어서션·실제 유휴 잠자기가 얽혀 자동화 대상이 아님 — 실기기 수동 확인.
+- [ ] I1. 메뉴 "잠자기 방지 → 켜기(화면은 꺼질 수 있음)" → `pmset -g assertions`에 PreventUserIdleSystemSleep 표시, 부모 항목 체크.
+- [ ] I2. "켜기(화면도 켜둠)" → PreventUserIdleDisplaySleep 표시, 유휴 시 화면이 꺼지지 않음.
+- [ ] I3. "끔" → 어서션 사라짐, 부모 체크 해제, 정상적으로 잠자기 진입.
+- [ ] I4. 앱 종료 → 어서션 자동 해제(`pmset -g assertions`에서 사라짐).
+- [ ] I5. 라디오 상태: 세 항목 중 현재 모드만 체크.
+
 ### H. 화면에서 텍스트 추출 (TextExtractor · screencapture → OCR)
 전역 단축키·화면 기록 권한·대화형 캡처가 얽혀 자동화 대상이 아님 — 실기기 수동 확인.
 - [ ] H1. **⌃⌥⌘O** → 십자선 표시 → 글자 있는 영역 드래그 → 클립보드에 인식 텍스트 복사(⌘V로 확인).
