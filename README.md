@@ -1,10 +1,10 @@
-# PlainPaste
+# PowerMacToys
 
 전역 단축키 하나로 **어디서든 서식 없는 Plain Text 붙여넣기**를 실행하는 macOS 메뉴바 앱.
 클립보드가 **이미지면 자동으로 OCR**해서 인식된 텍스트를 대신 붙여넣습니다 — 단축키 하나로 글자/이미지 자동 분기.
 
 <p align="center">
-  <img src="icon.png" width="120" alt="PlainPaste">
+  <img src="icon.png" width="120" alt="PowerMacToys">
 </p>
 
 ## 특징
@@ -23,10 +23,10 @@
 
 > 남에게 공유하기 가장 쉬운 방법. 터미널이 필요 없습니다.
 
-1. [Releases](../../releases/latest)에서 **`PlainPaste-1.1.dmg`** 를 받아 더블클릭해 엽니다.
-2. 창 안의 **PlainPaste 아이콘을 Applications 폴더로 드래그**합니다. *(창에 화살표로 안내됩니다.)*
-3. Launchpad나 응용 프로그램에서 **PlainPaste를 한 번 실행** → macOS Sequoia(15)에선 *"확인되지 않은 개발자"* 경고가 뜹니다.
-4. **시스템 설정 → 개인정보 보호 및 보안**을 열고, 화면 맨 아래 *"'PlainPaste'을(를) 열 수 없습니다"* 옆의 **[그래도 열기]** 를 누른 뒤 다시 **[열기]** → 이걸로 끝. 이후로는 그냥 실행됩니다.
+1. [Releases](../../releases/latest)에서 **`PowerMacToys-1.1.dmg`** 를 받아 더블클릭해 엽니다.
+2. 창 안의 **PowerMacToys 아이콘을 Applications 폴더로 드래그**합니다. *(창에 화살표로 안내됩니다.)*
+3. Launchpad나 응용 프로그램에서 **PowerMacToys를 한 번 실행** → macOS Sequoia(15)에선 *"확인되지 않은 개발자"* 경고가 뜹니다.
+4. **시스템 설정 → 개인정보 보호 및 보안**을 열고, 화면 맨 아래 *"'PowerMacToys'을(를) 열 수 없습니다"* 옆의 **[그래도 열기]** 를 누른 뒤 다시 **[열기]** → 이걸로 끝. 이후로는 그냥 실행됩니다.
 
 > DMG 창 자체에 이 순서가 그림으로 그려져 있어, 받는 분이 README 없이도 따라 할 수 있습니다.
 
@@ -43,11 +43,11 @@ clone → 컴파일 → `/Applications` 설치 → 실행까지 자동입니다.
 ### 방법 C — 소스에서 직접 빌드
 
 ```bash
-./build.sh                          # dist/PlainPaste.app 생성
-cp -R dist/PlainPaste.app /Applications/
-open /Applications/PlainPaste.app
+./build.sh                          # dist/PowerMacToys.app 생성
+cp -R dist/PowerMacToys.app /Applications/
+open /Applications/PowerMacToys.app
 
-./make_dmg.sh                       # (선택) 배포용 dist/PlainPaste-<버전>.dmg 생성
+./make_dmg.sh                       # (선택) 배포용 dist/PowerMacToys-<버전>.dmg 생성
 ```
 
 빌드는 맥 내장 `swiftc` / `hdiutil` 만 사용하며 외부 의존성이 없습니다.
@@ -55,9 +55,9 @@ open /Applications/PlainPaste.app
 ## 최초 실행 시 권한 (손쉬운 사용)
 
 붙여넣기 키 입력(⌘V)을 시스템에 전달해야 하므로 **손쉬운 사용** 권한이 필요합니다.
-첫 실행 시 안내 창이 뜨면: **시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → PlainPaste 켜기.**
+첫 실행 시 안내 창이 뜨면: **시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → PowerMacToys 켜기.**
 
-> 재빌드하면 ad-hoc 서명이 바뀌어 권한이 풀릴 수 있습니다. 그 경우 목록에서 PlainPaste를 제거 후 다시 추가하세요.
+> 재빌드하면 ad-hoc 서명이 바뀌어 권한이 풀릴 수 있습니다. 그 경우 목록에서 PowerMacToys를 제거 후 다시 추가하세요.
 
 ## 사용법
 
@@ -91,7 +91,7 @@ open /Applications/PlainPaste.app
 - **단축키 변경…** — 창이 뜬 상태에서 새 조합을 누르면 즉시 저장 (⌘/⌥/⌃ 중 1개 이상 필수, ESC 취소)
 - **창 항상 위 고정 / 고정 해제** — ⌃⌥⌘T와 동일. 고정 중이면 체크 표시와 함께 고정한 창 제목을 보여줍니다
 - **로그인 시 자동 시작** 토글 (macOS 13+)
-- **PlainPaste 종료**
+- **PowerMacToys 종료**
 
 ## 요구 사항
 

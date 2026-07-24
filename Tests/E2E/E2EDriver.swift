@@ -1,18 +1,18 @@
 import Cocoa
 import Carbon
 
-// PlainPaste E2E 시나리오 러너 — Tests/e2e.sh가 구동한다.
+// PowerMacToys E2E 시나리오 러너 — Tests/e2e.sh가 구동한다.
 //
-// 전제: PlainPaste(-PPTestHook 1)와 PasteCatcher가 이미 실행 중.
+// 전제: PowerMacToys(-PPTestHook 1)와 PasteCatcher가 이미 실행 중.
 // 입력(환경변수): PP_OUT = 캐처 출력파일, PP_CATCHER_PID = 캐처 PID
 // 종료 코드: 0 = 전부 통과(스킵 허용) / 1 = 실패 있음 / 2 = 캐너리 실패(권한 미설정 추정)
 //
 // 시나리오 ↔ TESTPLAN.md 매핑은 TESTPLAN.md의 E2E 매트릭스 표 참고.
 
 let pb = NSPasteboard.general
-let triggerName = Notification.Name("com.haseong23.plainpaste.test.trigger")
-let clearName = Notification.Name("com.haseong23.plainpaste.test.catcher.clear")
-let appBundleID = "com.haseong23.plainpaste"
+let triggerName = Notification.Name("com.haseong23.powermactoys.test.trigger")
+let clearName = Notification.Name("com.haseong23.powermactoys.test.catcher.clear")
+let appBundleID = "com.haseong23.powermactoys"
 
 guard let outPath = ProcessInfo.processInfo.environment["PP_OUT"],
       let pidStr = ProcessInfo.processInfo.environment["PP_CATCHER_PID"],
@@ -202,7 +202,7 @@ func postModifiers(_ carbonMods: UInt32, down: Bool) {
 
 // MARK: - 시나리오
 
-print("PlainPaste E2E — 실행 중 키보드/마우스를 만지지 마세요")
+print("PowerMacToys E2E — 실행 중 키보드/마우스를 만지지 마세요")
 print("")
 
 // ── S1: 순수 텍스트 그대로 + 클립보드 무손상 (C1) — 캐너리 겸용 ──────────────
@@ -218,9 +218,9 @@ if let got1 = waitPaste(marker: s1) {
     check("클립보드 내용 유지", pb.string(forType: .string) == s1)
 } else {
     print("")
-    print("❌ 캐너리 실패 — PlainPaste가 ⌘V를 보내지 못했습니다.")
-    print("   가장 흔한 원인: PlainPaste에 손쉬운 사용 권한이 없음.")
-    print("   → 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → PlainPaste 켜기")
+    print("❌ 캐너리 실패 — PowerMacToys가 ⌘V를 보내지 못했습니다.")
+    print("   가장 흔한 원인: PowerMacToys에 손쉬운 사용 권한이 없음.")
+    print("   → 시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용 → PowerMacToys 켜기")
     print("   → 재빌드로 서명이 바뀌었다면 기존 항목 제거 후 다시 추가")
     print("   → 서명을 고정해 재부여를 없애려면: ./Tests/make_signing_cert.sh")
     exit(2)
@@ -291,7 +291,7 @@ print("S13 온디맨드 원본 복원 (S6 직후, 메뉴 동작 모사)")
 // S6 직후 상태: 클립보드 = OCR 텍스트, 앱이 원본 PNG를 보관 중
 let ccBeforeRestore = pb.changeCount
 DistributedNotificationCenter.default().postNotificationName(
-    Notification.Name("com.haseong23.plainpaste.test.restore"),
+    Notification.Name("com.haseong23.powermactoys.test.restore"),
     object: nil, userInfo: nil, deliverImmediately: true)
 check("복원으로 클립보드 변경됨", waitUntil(5) { pb.changeCount != ccBeforeRestore })
 check("원본 PNG 플레이버 복귀", pb.data(forType: .png) != nil)

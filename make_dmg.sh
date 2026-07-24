@@ -1,13 +1,13 @@
 #!/bin/bash
-# PlainPaste DMG 패키징 — 드래그 설치 UI가 꾸며진 배포용 .dmg 생성
+# PowerMacToys DMG 패키징 — 드래그 설치 UI가 꾸며진 배포용 .dmg 생성
 # 맥 내장 도구만 사용(swiftc·hdiutil·tiffutil·osascript). 의존성 0.
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP="dist/PlainPaste.app"
-VOL="PlainPaste"
+APP="dist/PowerMacToys.app"
+VOL="PowerMacToys"
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Info.plist)"
-DMG="dist/PlainPaste-${VERSION}.dmg"
+DMG="dist/PowerMacToys-${VERSION}.dmg"
 
 # 앱이 없으면 먼저 빌드
 [ -d "$APP" ] || ./build.sh
@@ -48,7 +48,7 @@ tell application "Finder"
     set icon size of opts to 112
     set text size of opts to 12
     set background picture of opts to file ".background:bg.tiff"
-    set position of item "PlainPaste.app" of container window to {160, 210}
+    set position of item "PowerMacToys.app" of container window to {160, 210}
     set position of item "Applications" of container window to {460, 210}
     update without registering applications
     delay 1

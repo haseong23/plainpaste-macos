@@ -1,5 +1,5 @@
 #!/bin/bash
-# PlainPaste E2E 테스트 — 실제 앱·실제 pasteboard·합성 ⌘V 왕복을 실기기에서 검증.
+# PowerMacToys E2E 테스트 — 실제 앱·실제 pasteboard·합성 ⌘V 왕복을 실기기에서 검증.
 #
 #   ./Tests/e2e.sh
 #
@@ -22,17 +22,17 @@ if [[ "$(launchctl managername 2>/dev/null)" != "Aqua" ]]; then
 fi
 
 echo "══════════════════════════════════════════════════════════"
-echo " PlainPaste E2E — 약 1분 소요"
+echo " PowerMacToys E2E — 약 1분 소요"
 echo " 실행 중 키보드/마우스를 만지지 마세요 (포커스·클립보드 점유)"
 echo "══════════════════════════════════════════════════════════"
 
 # 1) 기존 인스턴스 정리 (핫키 선점 방지) — 있었으면 끝나고 복귀시킨다
 WAS_RUNNING=0
-pgrep -xq PlainPaste && WAS_RUNNING=1
-killall PlainPaste 2>/dev/null || true
+pgrep -xq PowerMacToys && WAS_RUNNING=1
+killall PowerMacToys 2>/dev/null || true
 killall PasteCatcher 2>/dev/null || true
 
-# 2) 앱 빌드 (키체인에 'PlainPaste Dev' 인증서가 있으면 자동으로 안정 서명)
+# 2) 앱 빌드 (키체인에 'PowerMacToys Dev' 인증서가 있으면 자동으로 안정 서명)
 ./build.sh
 
 # 3) 테스트 하네스 컴파일
@@ -47,18 +47,18 @@ OLDCLIP="$(pbpaste 2>/dev/null || true)"
 CATCHER_PID=""
 cleanup() {
     [[ -n "$CATCHER_PID" ]] && kill "$CATCHER_PID" 2>/dev/null || true
-    killall PlainPaste 2>/dev/null || true
+    killall PowerMacToys 2>/dev/null || true
     printf '%s' "$OLDCLIP" | pbcopy 2>/dev/null || true
-    if [[ "$WAS_RUNNING" == 1 && -d /Applications/PlainPaste.app ]]; then
-        open -g /Applications/PlainPaste.app 2>/dev/null || true
-        echo "(기존에 실행 중이던 PlainPaste를 다시 시작했습니다)"
+    if [[ "$WAS_RUNNING" == 1 && -d /Applications/PowerMacToys.app ]]; then
+        open -g /Applications/PowerMacToys.app 2>/dev/null || true
+        echo "(기존에 실행 중이던 PowerMacToys를 다시 시작했습니다)"
     fi
     rm -rf "$TMP"
 }
 trap cleanup EXIT
 
 # 5) 테스트 대상 앱(훅 켜서) + 수신 앱 실행
-open -n dist/PlainPaste.app --args -PPTestHook 1
+open -n dist/PowerMacToys.app --args -PPTestHook 1
 "$TMP/PasteCatcher" "$OUT" &
 CATCHER_PID=$!
 

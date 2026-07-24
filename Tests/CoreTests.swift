@@ -1,9 +1,9 @@
 import Cocoa
 import Carbon
 
-// PlainPaste 순수 로직 유닛테스트.
+// PowerMacToys 순수 로직 유닛테스트.
 // 의존성 0 기조를 지키려 XCTest 대신 초경량 러너를 쓴다.
-// 실행:  ./Tests/run.sh   (Sources/PlainPasteCore.swift 와 함께 컴파일됨)
+// 실행:  ./Tests/run.sh   (Sources/PowerMacToysCore.swift 와 함께 컴파일됨)
 
 private var passed = 0
 private var failures = 0
@@ -47,7 +47,7 @@ enum CoreTests {
                     "capsLock/function 등 무관한 플래그는 무시")
 
         // MARK: Shortcut 저장/복원 (독립 UserDefaults suite)
-        let suiteName = "com.haseong23.plainpaste.tests"
+        let suiteName = "com.haseong23.powermactoys.tests"
         let d = UserDefaults(suiteName: suiteName)!
         d.removePersistentDomain(forName: suiteName)
         expectEqual(Shortcut.load(from: d).keyCode, Shortcut.default.keyCode,

@@ -1,16 +1,16 @@
 import Cocoa
 
-// PlainPaste E2E 수신 앱 — 포커스를 잡고 서 있다가, 붙여넣어진(⌘V) 내용을 파일로 노출한다.
+// PowerMacToys E2E 수신 앱 — 포커스를 잡고 서 있다가, 붙여넣어진(⌘V) 내용을 파일로 노출한다.
 //
 // 사용법:  PasteCatcher <출력파일경로>
 //   • 텍스트가 바뀔 때마다 전문을 <출력파일>에 원자적으로 기록
 //   • 창이 키윈도우가 되고 앱이 활성화되면 <출력파일>.ready 에 자기 PID 기록
-//   • 분산 노티 com.haseong23.plainpaste.test.catcher.clear 수신 → 텍스트·파일 비움
+//   • 분산 노티 com.haseong23.powermactoys.test.catcher.clear 수신 → 텍스트·파일 비움
 //   • 포커스를 뺏기면 0.3초 주기로 재활성화 (E2E 실행 중 항상 붙여넣기 대상 유지)
 //
 // TCC 권한 불요 — 포커스된 앱으로서 ⌘V 키 이벤트를 받기만 한다.
 
-let clearNotification = Notification.Name("com.haseong23.plainpaste.test.catcher.clear")
+let clearNotification = Notification.Name("com.haseong23.powermactoys.test.catcher.clear")
 
 final class CatcherDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let outPath: String

@@ -8,5 +8,5 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BIN="$(mktemp -d)/ocr-bench"
-swiftc -O Sources/PlainPasteCore.swift Sources/OCREngine.swift Tests/Bench/OCRBench.swift -o "$BIN"
+swiftc -O Sources/PowerMacToysCore.swift Sources/OCREngine.swift Tests/Bench/OCRBench.swift -o "$BIN"
 "$BIN" "$@"

@@ -83,7 +83,7 @@ func roundedRect(_ r: CGRect, radius: CGFloat) -> CGPath {
 }
 
 // MARK: 상단 — 제목 + 1단계
-drawCentered("PlainPaste", size: 34, weight: .bold,
+drawCentered("PowerMacToys", size: 34, weight: .bold,
              color: NSColor(red: 0.16, green: 0.15, blue: 0.25, alpha: 1), topY: 40)
 drawCentered("①  아이콘을 Applications 폴더로 드래그", size: 15, weight: .medium,
              color: NSColor(red: 0.40, green: 0.38, blue: 0.52, alpha: 1), topY: 82)

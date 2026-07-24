@@ -1,5 +1,5 @@
 #!/bin/bash
-# 'PlainPaste Dev' 자가서명 코드서명 인증서 1회 생성 — 이후 build.sh가 자동으로 사용.
+# 'PowerMacToys Dev' 자가서명 코드서명 인증서 1회 생성 — 이후 build.sh가 자동으로 사용.
 #
 # 왜 필요한가:
 #   ad-hoc 서명(codesign -)은 빌드마다 서명이 달라져 macOS(TCC)가 재빌드된 앱을
@@ -13,17 +13,17 @@
 # 스크립트가 실패하면 아래 "수동 절차"로 동일한 결과를 만들 수 있다 (~5분):
 #   1. 키체인 접근(Keychain Access) 실행
 #   2. 메뉴: 키체인 접근 → 인증서 지원 → 인증서 생성…
-#      · 이름: PlainPaste Dev
+#      · 이름: PowerMacToys Dev
 #      · 신원 유형: 자체 서명 루트
 #      · 인증서 유형: 코드 서명       → [생성]
 #   3. (선택) 로그인 키체인에서 인증서 더블클릭 → 신뢰 → 코드 서명: 항상 신뢰
-#   4. ./build.sh — "서명: PlainPaste Dev" 출력 확인
+#   4. ./build.sh — "서명: PowerMacToys Dev" 출력 확인
 #
-# 인증서 교체 후 1회: 시스템 설정 → 손쉬운 사용에서 기존 PlainPaste 항목 제거 후
+# 인증서 교체 후 1회: 시스템 설정 → 손쉬운 사용에서 기존 PowerMacToys 항목 제거 후
 # 새로 빌드·실행한 앱을 다시 추가해야 한다(서명이 바뀌었으므로 마지막 재부여).
 set -euo pipefail
 
-NAME="PlainPaste Dev"
+NAME="PowerMacToys Dev"
 KEYCHAIN="$HOME/Library/Keychains/login.keychain-db"
 
 if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$NAME\""; then
@@ -54,8 +54,8 @@ openssl req -x509 -newkey rsa:2048 -days 3650 -nodes \
 
 # 2) 로그인 키체인으로 가져오기 (codesign에 접근 허용)
 openssl pkcs12 -export -inkey "$TMP/key.pem" -in "$TMP/cert.pem" \
-    -out "$TMP/id.p12" -passout pass:plainpaste -name "$NAME"
-security import "$TMP/id.p12" -k "$KEYCHAIN" -P plainpaste -T /usr/bin/codesign
+    -out "$TMP/id.p12" -passout pass:powermactoys -name "$NAME"
+security import "$TMP/id.p12" -k "$KEYCHAIN" -P powermactoys -T /usr/bin/codesign
 
 # 3) 코드서명 용도로 신뢰 등록 (sudo 1회)
 echo "→ 인증서를 시스템 신뢰 목록에 등록합니다 (sudo 비밀번호)…"
@@ -76,7 +76,7 @@ if codesign --force --sign "$NAME" "$TMP/dummy" 2>/dev/null \
     echo ""
     echo "다음 단계:"
     echo "  1. ./build.sh                            # 이제 자동으로 이 인증서로 서명"
-    echo "  2. 시스템 설정 → 손쉬운 사용에서 기존 PlainPaste 항목 제거"
+    echo "  2. 시스템 설정 → 손쉬운 사용에서 기존 PowerMacToys 항목 제거"
     echo "  3. 새로 빌드된 앱 실행 후 손쉬운 사용 권한 부여 (이번이 마지막 — 이후 재빌드에도 유지)"
 else
     echo ""

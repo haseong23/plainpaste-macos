@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleIdentifier</key>
-	<string>com.haseong23.plainpaste</string>
+	<string>com.haseong23.powermactoys</string>
 	<key>CFBundleName</key>
-	<string>PlainPaste</string>
+	<string>PowerMacToys</string>
 	<key>CFBundleDisplayName</key>
-	<string>PlainPaste</string>
+	<string>PowerMacToys</string>
 	<key>CFBundleExecutable</key>
-	<string>PlainPaste</string>
+	<string>PowerMacToys</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon</string>
 	<key>CFBundleVersion</key>

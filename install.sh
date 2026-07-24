@@ -1,5 +1,5 @@
 #!/bin/bash
-# PlainPaste 원클릭 설치 스크립트
+# PowerMacToys 원클릭 설치 스크립트
 # ─────────────────────────────────────────────────────────────────────────────
 # 서명(Apple Developer 인증)이 없는 앱이라도 Gatekeeper 경고 없이 설치합니다.
 # 핵심: DMG를 "내려받는" 대신 소스를 그 자리에서 컴파일하기 때문에,
@@ -13,7 +13,7 @@
 set -euo pipefail
 
 REPO="https://github.com/haseong23/plainpaste-macos.git"
-APP_NAME="PlainPaste"
+APP_NAME="PowerMacToys"
 
 say()  { printf "\033[1;34m▸\033[0m %s\n" "$1"; }
 ok()   { printf "\033[1;32m✓\033[0m %s\n" "$1"; }

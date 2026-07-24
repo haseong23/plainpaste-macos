@@ -3,7 +3,7 @@ import Carbon
 import ServiceManagement
 
 // 순수 로직(Shortcut, carbonModifiers, keyName, textPasteMode, ocrUpscaleFactor,
-// groupOCRLines, looksLikeCode)은 PlainPasteCore.swift로 분리 — 유닛테스트 대상.
+// groupOCRLines, looksLikeCode)은 PowerMacToysCore.swift로 분리 — 유닛테스트 대상.
 // OCR 파이프라인(recognizeTextOCR)은 OCREngine.swift로 분리 — 정확도 벤치(Tests/Bench) 대상.
 
 // MARK: - 앱 본체
@@ -53,14 +53,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func setupTestHookIfEnabled() {
         guard UserDefaults.standard.bool(forKey: "PPTestHook") else { return }
         DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("com.haseong23.plainpaste.test.trigger"),
+            forName: Notification.Name("com.haseong23.powermactoys.test.trigger"),
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.smartPaste()
         }
         // 메뉴 "직전 원본을 클립보드로 복원" 동작 모사 (E2E S13)
         DistributedNotificationCenter.default().addObserver(
-            forName: Notification.Name("com.haseong23.plainpaste.test.restore"),
+            forName: Notification.Name("com.haseong23.powermactoys.test.restore"),
             object: nil, queue: .main
         ) { [weak self] _ in
             self?.restoreOriginal()
@@ -73,7 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
             if let img = NSImage(systemSymbolName: "doc.plaintext",
-                                 accessibilityDescription: "PlainPaste") {
+                                 accessibilityDescription: "PowerMacToys") {
                 img.isTemplate = true
                 button.image = img
             } else {
@@ -107,7 +107,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(loginItem)
 
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "PlainPaste 종료",
+        let quit = NSMenuItem(title: "PowerMacToys 종료",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
 
@@ -165,7 +165,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         if status != noErr {
             hotKeyRef = nil
             alert("단축키 등록 실패",
-                  "\(shortcut.display) 조합을 등록할 수 없습니다 (다른 앱이나 이전 PlainPaste가 선점했을 수 있습니다). 다른 조합을 지정하거나 이전 인스턴스를 종료해 주세요.")
+                  "\(shortcut.display) 조합을 등록할 수 없습니다 (다른 앱이나 이전 PowerMacToys가 선점했을 수 있습니다). 다른 조합을 지정하거나 이전 인스턴스를 종료해 주세요.")
         }
     }
 
@@ -186,7 +186,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             pinHotKeyRef = nil
             // 핀 단축키는 부가 기능이라 모달 경고 대신 콘솔에만 남긴다(붙여넣기 흐름 방해 방지).
             FileHandle.standardError.write(
-                Data("PlainPaste: 창 고정 단축키(\(pinShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
+                Data("PowerMacToys: 창 고정 단축키(\(pinShortcut.display)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
         }
     }
 
@@ -369,8 +369,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func showAccessibilityAlert() {
         alert("손쉬운 사용 권한 필요",
               "붙여넣기 키 입력을 보내려면 손쉬운 사용 권한이 필요합니다.\n\n" +
-              "시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 PlainPaste를 켜 주세요.\n" +
-              "(목록에 이미 있는데도 안 되면 PlainPaste를 제거 후 다시 추가하세요 — 재빌드하면 서명이 바뀌어 권한이 풀립니다.)")
+              "시스템 설정 → 개인정보 보호 및 보안 → 손쉬운 사용에서 PowerMacToys를 켜 주세요.\n" +
+              "(목록에 이미 있는데도 안 되면 PowerMacToys를 제거 후 다시 추가하세요 — 재빌드하면 서명이 바뀌어 권한이 풀립니다.)")
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(url)
         }
