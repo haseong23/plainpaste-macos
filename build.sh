@@ -9,7 +9,7 @@ rm -rf dist
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-swiftc -O Sources/PowerMacToysCore.swift Sources/OCREngine.swift Sources/WindowPinner.swift Sources/TextExtractor.swift Sources/SleepPreventer.swift Sources/ColorPicker.swift Sources/main.swift -o "$APP/Contents/MacOS/PowerMacToys"
+swiftc -O Sources/PowerMacToysCore.swift Sources/OCREngine.swift Sources/WindowPinner.swift Sources/TextExtractor.swift Sources/SleepPreventer.swift Sources/ColorPicker.swift Sources/WindowSnapper.swift Sources/main.swift -o "$APP/Contents/MacOS/PowerMacToys"
 cp Info.plist "$APP/Contents/Info.plist"
 cp AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 

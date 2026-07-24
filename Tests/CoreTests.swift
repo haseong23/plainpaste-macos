@@ -185,6 +185,27 @@ enum CoreTests {
         expect(transformURLDecode("bad%zz") == nil, "잘못된 퍼센트 인코딩 → nil")
         expect(!pasteTransforms.isEmpty, "고급 붙여넣기 레지스트리 비어있지 않음")
 
+        // MARK: 창 배치 계산 (Window Snapping) — area = AX 상단-좌측 원점
+        let area = CGRect(x: 0, y: 0, width: 1000, height: 800)
+        expectEqual(snapRect(.leftHalf, in: area),   CGRect(x: 0,   y: 0,   width: 500,  height: 800), "왼쪽 절반")
+        expectEqual(snapRect(.rightHalf, in: area),  CGRect(x: 500, y: 0,   width: 500,  height: 800), "오른쪽 절반")
+        expectEqual(snapRect(.topHalf, in: area),    CGRect(x: 0,   y: 0,   width: 1000, height: 400), "위쪽 절반(top=작은 y)")
+        expectEqual(snapRect(.bottomHalf, in: area), CGRect(x: 0,   y: 400, width: 1000, height: 400), "아래쪽 절반")
+        expectEqual(snapRect(.topLeft, in: area),    CGRect(x: 0,   y: 0,   width: 500,  height: 400), "왼쪽 위 1/4")
+        expectEqual(snapRect(.bottomRight, in: area),CGRect(x: 500, y: 400, width: 500,  height: 400), "오른쪽 아래 1/4")
+        expectEqual(snapRect(.maximize, in: area),   area, "최대화 = 영역 전체")
+        expectEqual(snapRect(.center, in: area),     CGRect(x: 200, y: 160, width: 600,  height: 480), "가운데(60% 중앙)")
+        // 오프셋 영역(둘째 모니터 모사)에서도 상대 배치 유지
+        let area2 = CGRect(x: 1000, y: 0, width: 800, height: 600)
+        expectEqual(snapRect(.rightHalf, in: area2), CGRect(x: 1400, y: 0, width: 400, height: 600), "오프셋 영역 오른쪽 절반")
+
+        // 좌표 뒤집기: 자기역함수 + 실제값
+        expectEqual(flipVertically(CGRect(x: 0, y: 0, width: 100, height: 50), in: 800),
+                    CGRect(x: 0, y: 750, width: 100, height: 50), "Cocoa→AX 세로 뒤집기")
+        let r = CGRect(x: 10, y: 120, width: 300, height: 200)
+        expectEqual(flipVertically(flipVertically(r, in: 900), in: 900), r,
+                    "두 번 뒤집으면 원본 (자기역함수)")
+
         // MARK: 결과
         print("")
         print(failures == 0

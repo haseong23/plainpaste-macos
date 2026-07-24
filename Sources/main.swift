@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var colorHotKeyRef: EventHotKeyRef?
     private let colorShortcut = Shortcut.load(keyPrefix: "colorShortcut", fallback: .colorDefault)
 
+    // 창 배치 (AX 이동/리사이즈 · ⌃⌥ 방향키 4개 + 메뉴 전체 존).
+    private let snapper = WindowSnapper()
+    private var snapHotKeyRefs: [EventHotKeyRef?] = []
+
     private var recorderWindow: NSWindow?
     private var keyMonitor: Any?
 
@@ -69,6 +73,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         registerPinHotKey()
         registerTextExtractorHotKey()
         registerColorPickerHotKey()
+        registerSnapHotKeys()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
         setupTestHookIfEnabled()
@@ -149,6 +154,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(.separator())
         pinItem.target = self
         menu.addItem(pinItem)
+
+        // 창 배치 — 모든 존을 서브메뉴로. 4개(절반 L/R·최대화·가운데)는 ⌃⌥ 방향키도 함께.
+        let snapParent = NSMenuItem(title: "창 배치", action: nil, keyEquivalent: "")
+        let snapMenu = NSMenu()
+        for zone in SnapZone.allCases {
+            let item = NSMenuItem(title: zone.title + snapHotkeyHint(zone),
+                                  action: #selector(snapFromMenu(_:)), keyEquivalent: "")
+            item.target = self
+            item.tag = zone.rawValue
+            snapMenu.addItem(item)
+        }
+        snapParent.submenu = snapMenu
+        menu.addItem(snapParent)
 
         let awakeMenu = NSMenu()
         for item in [awakeOffItem, awakeSystemItem, awakeDisplayItem] {
@@ -238,6 +256,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             case 2: delegate.togglePin()
             case 3: delegate.extractText()
             case 4: delegate.pickColor()
+            case 10: delegate.snapWindow(.leftHalf)
+            case 11: delegate.snapWindow(.rightHalf)
+            case 12: delegate.snapWindow(.maximize)
+            case 13: delegate.snapWindow(.center)
             default: break
             }
             return noErr
@@ -337,6 +359,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         let pb = NSPasteboard.general
         pb.clearContents()
         pb.setString(hex, forType: .string)
+    }
+
+    // MARK: 창 배치 (⌃⌥ 방향키 4개 · id 10~13, 나머지 존은 메뉴)
+
+    private func registerSnapHotKeys() {
+        for ref in snapHotKeyRefs where ref != nil { UnregisterEventHotKey(ref!) }
+        snapHotKeyRefs.removeAll()
+
+        let ctrlOpt = UInt32(controlKey | optionKey)
+        let bindings: [(UInt32, UInt32)] = [   // (hotkey id, keyCode)
+            (10, UInt32(kVK_LeftArrow)),   // 왼쪽 절반
+            (11, UInt32(kVK_RightArrow)),  // 오른쪽 절반
+            (12, UInt32(kVK_UpArrow)),     // 최대화
+            (13, UInt32(kVK_DownArrow)),   // 가운데
+        ]
+        for (id, key) in bindings {
+            var ref: EventHotKeyRef?
+            let hotKeyID = EventHotKeyID(signature: OSType(0x504C_5054), id: id)
+            let status = RegisterEventHotKey(key, ctrlOpt, hotKeyID,
+                                             GetApplicationEventTarget(), 0, &ref)
+            if status != noErr {
+                FileHandle.standardError.write(
+                    Data("PowerMacToys: 창 배치 단축키(id \(id)) 등록 실패 — 다른 앱이 선점했을 수 있습니다.\n".utf8))
+            }
+            snapHotKeyRefs.append(ref)
+        }
+    }
+
+    func snapWindow(_ zone: SnapZone) {
+        guard ensureAccessibility(prompt: true) else {
+            showAccessibilityAlert()   // 다른 앱 창 이동엔 손쉬운 사용 권한 필요
+            return
+        }
+        snapper.snap(zone)
+    }
+
+    @objc private func snapFromMenu(_ sender: NSMenuItem) {
+        guard let zone = SnapZone(rawValue: sender.tag) else { return }
+        snapWindow(zone)
+    }
+
+    // ⌃⌥ 방향키가 걸린 4개 존에만 메뉴에 힌트 표기.
+    private func snapHotkeyHint(_ zone: SnapZone) -> String {
+        switch zone {
+        case .leftHalf:  return "  (⌃⌥←)"
+        case .rightHalf: return "  (⌃⌥→)"
+        case .maximize:  return "  (⌃⌥↑)"
+        case .center:    return "  (⌃⌥↓)"
+        default:         return ""
+        }
     }
 
     // 메뉴 항목용 작은 색상 스와치 (HEX가 유효할 때만).

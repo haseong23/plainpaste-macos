@@ -241,3 +241,55 @@ let pasteTransforms: [PasteTransform] = [
     PasteTransform(title: "URL 인코딩")          { transformURLEncode($0) },
     PasteTransform(title: "URL 디코딩")          { transformURLDecode($0) },
 ]
+
+// MARK: 창 배치 (Window Snapping — 순수 계산)
+//
+// 목표 사각형 계산과 좌표 변환만 순수 함수로 두고(유닛테스트), 실제 창 이동/리사이즈
+// (AX)와 화면 판별은 WindowSnapper.swift가 담당한다. rawValue는 메뉴 항목 tag로 쓴다.
+
+enum SnapZone: Int, CaseIterable {
+    case leftHalf, rightHalf, topHalf, bottomHalf
+    case topLeft, topRight, bottomLeft, bottomRight
+    case maximize, center
+
+    var title: String {
+        switch self {
+        case .leftHalf:    return "왼쪽 절반"
+        case .rightHalf:   return "오른쪽 절반"
+        case .topHalf:     return "위쪽 절반"
+        case .bottomHalf:  return "아래쪽 절반"
+        case .topLeft:     return "왼쪽 위 1/4"
+        case .topRight:    return "오른쪽 위 1/4"
+        case .bottomLeft:  return "왼쪽 아래 1/4"
+        case .bottomRight: return "오른쪽 아래 1/4"
+        case .maximize:    return "최대화"
+        case .center:      return "가운데"
+        }
+    }
+}
+
+// 사용가능 영역(area) 안에서 zone에 해당하는 목표 사각형. area·반환값은 같은 좌표계
+// (호출부는 AX 상단-좌측 원점을 넘긴다 — 그래서 top = 작은 y). 순수 함수.
+func snapRect(_ zone: SnapZone, in area: CGRect) -> CGRect {
+    let x = area.minX, y = area.minY, w = area.width, h = area.height
+    switch zone {
+    case .leftHalf:    return CGRect(x: x,       y: y,       width: w / 2, height: h)
+    case .rightHalf:   return CGRect(x: x + w/2, y: y,       width: w / 2, height: h)
+    case .topHalf:     return CGRect(x: x,       y: y,       width: w,     height: h / 2)
+    case .bottomHalf:  return CGRect(x: x,       y: y + h/2, width: w,     height: h / 2)
+    case .topLeft:     return CGRect(x: x,       y: y,       width: w / 2, height: h / 2)
+    case .topRight:    return CGRect(x: x + w/2, y: y,       width: w / 2, height: h / 2)
+    case .bottomLeft:  return CGRect(x: x,       y: y + h/2, width: w / 2, height: h / 2)
+    case .bottomRight: return CGRect(x: x + w/2, y: y + h/2, width: w / 2, height: h / 2)
+    case .maximize:    return area
+    case .center:
+        let cw = w * 0.6, ch = h * 0.6
+        return CGRect(x: x + (w - cw) / 2, y: y + (h - ch) / 2, width: cw, height: ch)
+    }
+}
+
+// Cocoa(하단-좌측 원점) ↔ AX(상단-좌측 원점) 세로 뒤집기. totalHeight = 주 디스플레이 높이.
+// 두 번 적용하면 원본으로 돌아온다(자기역함수).
+func flipVertically(_ rect: CGRect, in totalHeight: CGFloat) -> CGRect {
+    CGRect(x: rect.minX, y: totalHeight - rect.maxY, width: rect.width, height: rect.height)
+}
