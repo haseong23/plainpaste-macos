@@ -1,6 +1,9 @@
 # 빌드 산출물
 dist/
 
+# 스트레스 테스트 결과 (실행마다 갱신 — 공유할 것만 골라 첨부)
+stress-report.txt
+
 # macOS
 .DS_Store
 

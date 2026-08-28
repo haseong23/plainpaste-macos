@@ -457,19 +457,25 @@ if axTrusted {
     var viaHook = Tally(name: "R0 훅", note: "대조", strict: false)
     var viaKey = Tally(name: "R0 단축키", note: "대조", strict: false)
     catcherA.focus()
+    // 성공한 붙여넣기는 ~150ms에 도착한다. 타임아웃을 길게 두면 실패 회차마다 그만큼
+    // 기다릴 뿐 아니라, 간섭 판정 창(= 사이클 길이)이 넓어져 사람의 입력에 과다 노출된다.
+    let probeTimeout: TimeInterval = 2.5
     for i in 1...n {
         let m = marker("R0H", i)
-        syncCycle(into: catcherA, expect: m, method: .hook, tally: &viaHook) { setPlain(m) }
+        syncCycle(into: catcherA, expect: m, timeout: probeTimeout,
+                  method: .hook, tally: &viaHook) { setPlain(m) }
     }
     for i in 1...n {
         let m = marker("R0K", i)
-        syncCycle(into: catcherA, expect: m, method: .hotkey, tally: &viaKey) { setPlain(m) }
+        syncCycle(into: catcherA, expect: m, timeout: probeTimeout,
+                  method: .hotkey, tally: &viaKey) { setPlain(m) }
     }
-    let hookRate = Double(viaHook.arrived) / Double(max(1, viaHook.attempted))
-    let keyRate = Double(viaKey.arrived) / Double(max(1, viaKey.attempted))
-    print(String(format: "   훅 %d/%d (%.0f%%) · 단축키 %d/%d (%.0f%%)",
-                 viaHook.arrived, viaHook.attempted, hookRate * 100,
-                 viaKey.arrived, viaKey.attempted, keyRate * 100))
+    let hookRate = Double(viaHook.arrived) / Double(max(1, viaHook.valid))
+    let keyRate = Double(viaKey.arrived) / Double(max(1, viaKey.valid))
+    print(String(format: "   훅 %d/%d (%.0f%%) · 단축키 %d/%d (%.0f%%) · 간섭 %d/%d",
+                 viaHook.arrived, viaHook.valid, hookRate * 100,
+                 viaKey.arrived, viaKey.valid, keyRate * 100,
+                 viaHook.interfered + viaKey.interfered, viaHook.attempted + viaKey.attempted))
     if keyRate - hookRate > 0.15 {
         notes.append(String(format: "R0: 훅 도착률이 단축키보다 %.0f%%p 낮음 — 분산 노티 유실. "
                             + "훅 기반 수치는 앱의 씹힘으로 읽으면 안 됨",
@@ -559,12 +565,15 @@ print("   도착 \(r4.arrived)/\(r4.attempted) · 누락 \(r4.dropped) · 밀림
 // ── R5: 훅 트리거 반복 — 비게이팅 관측 ───────────────────────────────────────
 // 기본 트리거가 실제 단축키가 된 뒤로 훅은 "테스트 훅 자체가 얼마나 믿을 만한가"를
 // 추적하는 자리다. 유실이 하네스 쪽 특성이므로 누락으로 실패시키지 않는다(strict: false).
-print("R5 훅 트리거 반복 — 테스트 훅 신뢰도 관측 (비게이팅)")
+// R0가 이미 훅을 20회 대조하므로 여기서는 짧게만 확인한다 — 훅은 실패 시 매번
+// 타임아웃까지 기다려 비용이 크고, 그 긴 사이클이 간섭 판정 창을 넓혀 오탐을 키운다.
+let r5Cycles = max(8, cycles / 5)
+print("R5 훅 트리거 \(r5Cycles)회 — 테스트 훅 신뢰도 관측 (비게이팅)")
 var r5 = Tally(name: "R5 훅(관측)", note: "누락 비게이팅", strict: false)
 catcherA.focus()
-for i in 1...cycles {
+for i in 1...r5Cycles {
     let m = marker("R5", i)
-    syncCycle(into: catcherA, expect: m, method: .hook, tally: &r5) { setPlain(m) }
+    syncCycle(into: catcherA, expect: m, timeout: 2.5, method: .hook, tally: &r5) { setPlain(m) }
 }
 abortIfContaminated(r5)
 tallies.append(r5)

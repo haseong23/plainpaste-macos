@@ -3,6 +3,7 @@
 # 씹힘(누락)·밀림·중복·클립보드 오염이 생기는지 실기기에서 센다.
 #
 #   ./Tests/stress.sh                 # 기본 (반복 40회 · 소크 150회, 약 4분)
+#   결과는 화면과 stress-report.txt 양쪽에 남는다 (경로는 PP_REPORT로 변경 가능).
 #   PP_CYCLES=15 PP_SOAK=40 ./Tests/stress.sh    # 빠른 확인 (약 1분)
 #   PP_APP=/Applications/PlainPaste.app ./Tests/stress.sh   # 이미 권한이 있는 설치본으로
 #
@@ -35,6 +36,11 @@ fi
 CYCLES="${PP_CYCLES:-40}"
 SOAK="${PP_SOAK:-150}"
 APP="${PP_APP:-dist/PlainPaste.app}"
+
+# 결과를 파일로도 남긴다 — 터미널에만 찍히면 한 번 스크롤이 지나간 뒤 되찾을 수 없고,
+# 실행한 사람과 결과를 읽는 사람이 다를 때(인수인계·이슈 첨부) 매번 재실행하게 된다.
+REPORT="${PP_REPORT:-stress-report.txt}"
+exec > >(tee "$REPORT") 2>&1
 
 echo "══════════════════════════════════════════════════════════"
 echo " PlainPaste 스트레스 — 반복 ${CYCLES}회 · 소크 ${SOAK}회"
@@ -108,4 +114,5 @@ PP_APP_PATH="$(cd "$(dirname "$APP")" && pwd)/$(basename "$APP")" \
 
 echo ""
 echo "(클립보드는 테스트 전 문자열 내용으로 복원됩니다 — 이미지였다면 유실)"
+echo "결과 저장됨: $PWD/$REPORT"
 exit "$STATUS"
