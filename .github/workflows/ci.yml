@@ -14,7 +14,7 @@ jobs:
     name: L1 유닛테스트
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Swift 버전
         run: swift --version
       - name: 순수 로직 유닛테스트
@@ -24,7 +24,7 @@ jobs:
     name: 빌드 · 번들 검증
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: 빌드
         run: ./build.sh
       - name: 앱 번들 구조 검증
@@ -38,7 +38,7 @@ jobs:
           test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleExecutable)" = PlainPaste
           codesign --verify --verbose=2 "$APP"
       - name: 빌드 산출물 업로드
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: PlainPaste-app
           path: dist/PlainPaste.app
@@ -51,7 +51,7 @@ jobs:
     # 분리해, 여기서 실패해도 앞의 두 신호는 그대로 읽힌다.
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: CER 기준선 검사
         run: ./Tests/ocr_bench.sh --check
 
