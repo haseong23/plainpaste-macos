@@ -63,8 +63,17 @@ private func performRecognition(on image: CGImage, options: OCROptions) -> Strin
         request.recognitionLanguages = ["en-US"]               // 12.x: 한국어 미지원
     }
     let handler = VNImageRequestHandler(cgImage: image, options: [:])
-    guard (try? handler.perform([request])) != nil,
-          let observations = request.results else { return nil }
+    // 실패를 `try?`로 삼키면 호출부에는 nil만 남아 "글자 없음"과 구분되지 않는다 → 사유를 남긴다.
+    do {
+        try handler.perform([request])
+    } catch {
+        NSLog("PlainPaste: Vision 인식 실패 — %@", error.localizedDescription)
+        return nil
+    }
+    guard let observations = request.results else {
+        NSLog("PlainPaste: Vision이 결과를 반환하지 않았습니다 (results == nil)")
+        return nil
+    }
     // 시각적 줄로 재구성: 같은 줄은 공백 결합, 줄들은 위→아래 (로직은 groupOCRLines에서 테스트)
     let items: [(string: String, box: CGRect)] = observations.compactMap {
         guard let s = $0.topCandidates(1).first?.string else { return nil }

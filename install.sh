@@ -57,11 +57,28 @@ say "컴파일 중…"
 ok "빌드 완료"
 
 # ── 4. 기존 인스턴스 종료 후 /Applications 로 설치 ────────────────────────────
+BUILT="$SRC_DIR/dist/$APP_NAME.app"
+TARGET="/Applications/$APP_NAME.app"
+
+# 지우기 전에 확인한다: ① 새 번들이 실제로 만들어졌는가 ② 지울 대상이 정말 앱 번들인가.
+# 이 스크립트는 `curl | bash` 로도 실행되므로, 검증 없는 rm -rf 는 남의 맥에서 돌아간다.
+if [ ! -x "$BUILT/Contents/MacOS/$APP_NAME" ]; then
+  warn "빌드 산출물을 찾을 수 없습니다: $BUILT — 설치를 중단합니다."
+  exit 1
+fi
+
 osascript -e "quit app \"$APP_NAME\"" >/dev/null 2>&1 || true
 pkill -x "$APP_NAME" >/dev/null 2>&1 || true
 sleep 1
-rm -rf "/Applications/$APP_NAME.app"
-cp -R "$SRC_DIR/dist/$APP_NAME.app" /Applications/
+
+if [ -e "$TARGET" ]; then
+  if [ ! -d "$TARGET" ] || [ ! -f "$TARGET/Contents/Info.plist" ]; then
+    warn "$TARGET 이 앱 번들이 아닙니다 — 덮어쓰지 않고 중단합니다."
+    exit 1
+  fi
+  rm -rf "$TARGET"
+fi
+cp -R "$BUILT" /Applications/
 # 혹시 레포를 zip으로 받아 quarantine이 묻었어도 확실히 제거
 xattr -dr com.apple.quarantine "/Applications/$APP_NAME.app" >/dev/null 2>&1 || true
 ok "설치 완료: /Applications/$APP_NAME.app"
