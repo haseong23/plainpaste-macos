@@ -90,6 +90,7 @@ open /Applications/PlainPaste.app
 ./Tests/run.sh                # 순수 로직 유닛테스트 (권한 불요)
 ./Tests/ocr_bench.sh --check  # OCR CER 회귀 게이트
 ./Tests/e2e.sh                # 실기기 E2E — GUI 세션 + 손쉬운 사용 권한 필요
+./Tests/stress.sh             # 반복·앱 전환 스트레스 — 씹힘·밀림·중복·오염 계수
 ```
 
 앞의 둘은 push·PR마다 GitHub Actions에서도 돌아갑니다. 테스트 층 구성과 시나리오 매트릭스는 [TESTPLAN.md](TESTPLAN.md) 참고.
