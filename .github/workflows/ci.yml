@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# 러너를 macos-latest가 아니라 고정 버전으로 두는 이유:
+# OCR 벤치는 OS에 내장된 Vision 모델의 정확도를 재므로, 라벨이 새 macOS로 굴러가면
+# 코드 변경 없이 수치가 흔들린다. 버전을 올릴 때는 벤치 기준선 재확인과 함께 올린다.
+jobs:
+  unit:
+    name: L1 유닛테스트
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Swift 버전
+        run: swift --version
+      - name: 순수 로직 유닛테스트
+        run: ./Tests/run.sh
+
+  build:
+    name: 빌드 · 번들 검증
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: 빌드
+        run: ./build.sh
+      - name: 앱 번들 구조 검증
+        run: |
+          set -euo pipefail
+          APP=dist/PlainPaste.app
+          test -x "$APP/Contents/MacOS/PlainPaste"
+          test -f "$APP/Contents/Info.plist"
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          # Info.plist가 실제로 읽히는지 + 실행 파일 이름이 일치하는지
+          test "$(defaults read "$PWD/$APP/Contents/Info" CFBundleExecutable)" = PlainPaste
+          codesign --verify --verbose=2 "$APP"
+      - name: 빌드 산출물 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: PlainPaste-app
+          path: dist/PlainPaste.app
+          retention-days: 7
+
+  ocr:
+    name: OCR 회귀 벤치
+    runs-on: macos-15
+    # 벤치는 GUI·권한이 필요 없지만(온디바이스 Vision) 유닛·빌드보다 느리다 → 별도 잡으로
+    # 분리해, 여기서 실패해도 앞의 두 신호는 그대로 읽힌다.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: CER 기준선 검사
+        run: ./Tests/ocr_bench.sh --check
+
+# L2 E2E(Tests/e2e.sh)는 CI에 없다 — 손쉬운 사용(TCC) 권한과 Aqua 로그인 세션이 필요해
+# GitHub 러너에서 구동할 수 없다. 실기기 수동 실행으로 남는다 (TESTPLAN.md 참고).

@@ -4,8 +4,9 @@
 
 | 층 | 무엇 | 실행 | 상태 |
 |---|---|---|---|
-| **L1 유닛** | 순수 로직 — 분기 규칙·모디파이어 매핑·단축키 저장·OCR 정렬·업스케일 배율 | `./Tests/run.sh` | 자동 |
-| **L2 E2E** | 실제 앱 + 실제 pasteboard + 합성 ⌘V 왕복 (아래 S1–S12) | `./Tests/e2e.sh` | 자동 |
+| **L1 유닛** | 순수 로직 — 분기 규칙·모디파이어 매핑·단축키 저장·OCR 정렬·업스케일 배율 | `./Tests/run.sh` | 자동 · **CI** |
+| **L2 E2E** | 실제 앱 + 실제 pasteboard + 합성 ⌘V 왕복 (아래 S1–S12) | `./Tests/e2e.sh` | 자동 · 실기기 전용 |
+| **OCR 회귀** | 채택된 기본값의 CER이 기준선을 넘지 않는지 | `./Tests/ocr_bench.sh --check` | 자동 · **CI** |
 | **잔여 수동** | 권한 UX·단축키 레코더 UI·로그인 항목 (아래 §수동) | 사람 | 수동 |
 
 > 원리: 붙여넣기(⌘V)와 복사(⌘C)는 **다른 프로세스의 pasteboard 서버**를 거치고 `changeCount` 전파에 지연이 있다. 지금까지의 버그(직전 값 밀림·⌘C 두 번)는 전부 이 지연과의 경합이었다. E2E는 이 경합의 **결과 계약**("순수 텍스트일 때 클립보드를 절대 건드리지 않는다")을 `changeCount` 단언으로 기계 검증한다.
@@ -15,10 +16,25 @@
 ## 실행
 
 ```bash
-./Tests/run.sh        # L1 유닛 — 어디서든, 권한 불요, CI 가능
-./Tests/e2e.sh        # L2 E2E — 이 맥의 GUI 세션에서, ~1분, 실행 중 입력 금지
-./Tests/ocr_bench.sh  # OCR 정확도 벤치 — 권한·GUI 불요, CER 채점 (아래 §OCR 벤치)
+./Tests/run.sh                # L1 유닛 — 어디서든, 권한 불요, CI에서 실행됨
+./Tests/e2e.sh                # L2 E2E — 이 맥의 GUI 세션에서, ~1분, 실행 중 입력 금지
+./Tests/ocr_bench.sh          # OCR 변형 비교 표 — 튜닝할 때 (10개 변형, ~1분)
+./Tests/ocr_bench.sh --check  # OCR 회귀 게이트 — 기본값 1개 변형만, CI에서 실행됨 (~5초)
 ```
+
+### CI ([.github/workflows/ci.yml](.github/workflows/ci.yml))
+
+`push`(main)·`pull_request`·수동 실행에서 **macos-15** 러너로 3개 잡:
+
+| 잡 | 하는 일 |
+| --- | --- |
+| `unit` | `./Tests/run.sh` — 순수 로직 회귀 |
+| `build` | `./build.sh` + 번들 구조·서명 검증, `.app` 아티팩트 업로드 |
+| `ocr` | `./Tests/ocr_bench.sh --check` — CER 기준선 초과 시 실패 |
+
+러너를 `macos-latest`가 아니라 고정 버전으로 두는 이유: OCR 벤치가 재는 것은 **OS에 내장된 Vision 모델**이라, 라벨이 새 macOS로 굴러가면 코드 변경 없이 수치가 움직인다. 러너 버전을 올릴 때는 기준선 재측정과 함께 올린다.
+
+**L2 E2E는 CI에 없다** — 손쉬운 사용(TCC) 권한과 Aqua 로그인 세션이 필요해 GitHub 러너에서 구동할 수 없다. 실기기 수동 실행으로 남는다.
 
 ### E2E 1회 설정 (최초 1번)
 
@@ -70,6 +86,11 @@ OCR 개선은 감이 아니라 벤치 수치로 결정한다. 앱과 동일한 �
   (`retryAT` — 코드 평균 CER 1.8%→0.9%, 터미널·camelCase 훼손 복구, 한글 주석 무손상, 산문 무영향)
 - en 단독 재인식(`retryEN`)은 코드 속 한글 주석을 파괴(CER 39%)해 탈락 — 회귀 방지용으로 변형에 남겨둠
 - `.fast` 재인식(`fastRT`)은 언더스코어 소실·공백 삽입으로 탈락 (식별자 CER 19%)
+- **회귀 게이트(`--check`)**: 채택된 기본값(`retryAT`) 한 변형만 돌려 CER이 기준선을 넘으면 exit 1.
+  기준선은 2026-08-28 macOS 15 실측(전체 평균 0.7% · code-식별자 4.8% · fx:claude-terminal 5.2%)에
+  2~3배 여유를 얹은 상한 — 러너 마이너 버전 차이는 통과하고 설정 회귀·모델 변화는 잡히는 폭이다.
+  모델 한계로 이미 오차가 있는 두 케이스는 개별 상한으로 따로 잠가, 전체 평균에 묻혀
+  깨끗한 케이스의 회귀를 가리지 않게 했다. 값은 [Tests/Bench/OCRBench.swift](Tests/Bench/OCRBench.swift)의 `perCaseCERLimit`.
 - **알려진 한계 — `l/1/I/|` 모호 글리프** (실사용 리포트 `dd_l`→`dd_1`, `code-식별자` 케이스로 고정):
   24px에서도 재현되는 Vision 모델 수준의 모호성. 후처리 교정은 합법 `_1` 식별자를 훼손하므로 금지.
   현 기본값이 시험한 설정 중 최선(4.8%, 구동작 7.1%)이며, OS 업그레이드로 모델이 바뀌면 이 케이스 수치가 감지한다.
@@ -107,7 +128,6 @@ rewrite/OCR 경로는 클립보드를 플레인 텍스트로 덮어쓰되, **덮
 
 - **L3 경합 유닛테스트:** `changeCount` 경합의 "과정"을 결정론적으로 재현.
   `PasteboardProviding`/`EventPosting` 프로토콜 추출 → `smartPaste` 오케스트레이션을 Core로 이동 → FakePasteboard로 ① OCR 중 새 복사 ② modifier 대기 중 새 복사 ③ expectedChangeCount 불일치 드롭을 각각 유닛테스트. E2E 안전망이 있는 지금이 착수 적기.
-- **CI:** L1 유닛테스트는 GitHub Actions macos 러너에서 실행 가능(권한 불요). E2E는 TCC 때문에 로컬 전용.
 - E(레코더 UI)는 원하면 AX UI 스크립팅으로 자동화 가능 — 우선순위 낮음.
 
 ## L1 자동 유닛테스트
