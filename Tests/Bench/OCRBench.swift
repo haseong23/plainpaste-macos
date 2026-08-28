@@ -5,6 +5,7 @@ import Cocoa
 // 이 표를 근거로 결정한다. 인식 경로는 앱과 동일한 recognizeTextOCR(OCREngine.swift).
 //
 // 실행:  ./Tests/ocr_bench.sh [--verbose]
+//        ./Tests/ocr_bench.sh --check     # CI 게이트 — 기본값 변형만 돌려 기준선 초과 시 exit 1
 // 실제 실패 사례 추가: Tests/fixtures/ocr/이름.png + 이름.txt(기대 텍스트) 쌍을 넣으면
 // 자동으로 포함된다 — 실패 스크린샷이 쌓일수록 벤치가 회귀 스위트가 된다.
 
@@ -25,8 +26,10 @@ struct Variant {
 enum OCRBench {
     static func main() {
         let verbose = CommandLine.arguments.contains("--verbose")
+        let check = CommandLine.arguments.contains("--check")
         let cases = makeCorpus() + loadFixtures()
-        let variants = makeVariants()
+        // --check는 채택된 기본값 한 변형만 — 비교 표가 아니라 회귀 감지가 목적이라 10배 빠르다.
+        let variants = check ? makeVariants().filter { $0.name == defaultVariantName } : makeVariants()
 
         // variant → case → (cer, 출력)
         var results: [String: [String: (cer: Double, got: String)]] = [:]
@@ -47,7 +50,64 @@ enum OCRBench {
         }
 
         printTable(cases: cases, variants: variants, results: results, times: times)
-        printFailures(of: "retryAT", cases: cases, results: results)
+        printFailures(of: defaultVariantName, cases: cases, results: results)
+        if check { exit(runCheck(cases: cases, results: results)) }
+    }
+
+    // MARK: --check — CI 회귀 게이트
+    //
+    // 절대 정확도를 재는 게 아니라 **설정 회귀와 OS 모델 변화를 감지**하는 게 목적이다.
+    // 그래서 기준선은 실측값에 여유를 얹은 상한이고, 통과 = "예전만큼은 한다"는 뜻일 뿐이다.
+    // 개선이 확인되면 기준선을 내려 잠그고, 초과하면 원인을 판정한 뒤 TESTPLAN을 갱신한다.
+    // (l/1/I 모호 글리프처럼 모델 한계로 남은 케이스는 per-case 예외로 열어 둔다 — 전체
+    //  평균에 묻어 다른 케이스의 회귀를 가리지 않도록 케이스별 상한을 따로 둔다.)
+
+    // 기준선은 2026-08-28 macOS 15(Darwin 24.6) 실측값에 여유를 얹은 상한이다.
+    // 실측: 전체 평균 0.7% / code-밝음 0.8% / code-식별자 4.8% / fx:claude-terminal 5.2%
+    //       나머지 11개 케이스 0.0%
+    // 여유를 두는 이유: 러너의 macOS 마이너 버전 차이만으로도 Vision 출력이 조금 흔들린다.
+    // 상한을 실측의 2~3배로 잡아 "잡음은 통과, 회귀는 검출"되게 한다.
+    static let defaultVariantName = "retryAT"
+    static let overallCERLimit = 0.020          // 실측 0.7% — 전 케이스 평균 상한
+    static let defaultPerCaseCERLimit = 0.030   // 실측 최대 0.8%(code-밝음) — 깨끗한 케이스용
+    // 모델 한계로 이미 오차가 있는 케이스는 개별 상한 — 전체 평균에 묻혀
+    // 다른 케이스의 회귀를 가리지 않도록 따로 잠근다.
+    static let perCaseCERLimit: [String: Double] = [
+        "code-식별자": 0.08,          // 실측 4.8% — l/1/I/| 모호 글리프 (TESTPLAN §OCR 벤치)
+        "fx:claude-terminal": 0.08,  // 실측 5.2% — 실UI 노이즈 클래스(흐린 회색·맥 심볼)
+    ]
+
+    static func runCheck(cases: [BenchCase],
+                         results: [String: [String: (cer: Double, got: String)]]) -> Int32 {
+        guard let perCase = results[defaultVariantName] else {
+            print("\n❌ --check: 기본값 변형 '\(defaultVariantName)'을 찾지 못했습니다")
+            return 1
+        }
+        func pct(_ v: Double) -> String { String(format: "%.1f%%", v * 100) }
+
+        var violations: [String] = []
+        for c in cases {
+            let cer = perCase[c.name]?.cer ?? 1.0
+            let limit = perCaseCERLimit[c.name] ?? defaultPerCaseCERLimit
+            if cer > limit {
+                violations.append("\(c.name): CER \(pct(cer)) > 기준선 \(pct(limit))")
+            }
+        }
+        let overall = cases.map { perCase[$0.name]?.cer ?? 1.0 }.reduce(0, +) / Double(cases.count)
+        if overall > overallCERLimit {
+            violations.append("전체 평균: CER \(pct(overall)) > 기준선 \(pct(overallCERLimit))")
+        }
+
+        print("")
+        guard violations.isEmpty else {
+            print("❌ OCR 회귀 감지 — '\(defaultVariantName)' 기준선 초과 \(violations.count)건")
+            for v in violations { print("   ▸ \(v)") }
+            print("   원인을 판정한 뒤: 회귀면 수정, 의도된 변화면 OCRBench의 기준선을 갱신하세요.")
+            return 1
+        }
+        print("✅ OCR 회귀 없음 — '\(defaultVariantName)' 전체 평균 CER \(pct(overall))" +
+              " (기준선 \(pct(overallCERLimit))), 케이스별 초과 0건")
+        return 0
     }
 
     // MARK: 변형 정의 — retry(교정on + 코드재인식)가 제안 기본값

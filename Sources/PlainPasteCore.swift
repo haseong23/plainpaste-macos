@@ -81,14 +81,17 @@ func keyName(for keyCode: UInt32) -> String {
 //   • 서식 텍스트(.rewrite)일 때만 플레인으로 재작성(=클립보드 덮어씀).
 
 enum TextPasteMode: Equatable {
-    case direct    // 순수 텍스트 그대로 — 클립보드를 건드리지 않고 ⌘V만 전송
-    case rewrite   // 서식 텍스트 — 플레인으로 재작성 후 붙여넣기 (클립보드를 플레인으로 덮어씀)
-    case none      // 쓸 만한 텍스트 없음 — 이미지/OCR 분기로 넘어감
+    case direct             // 순수 텍스트 그대로 — 클립보드를 건드리지 않고 ⌘V만 전송
+    case rewrite(String)    // 서식 텍스트 — 이 문자열을 플레인으로 재작성해 붙여넣기
+                            // (클립보드를 플레인으로 덮어씀). 재작성 대상을 연관값으로 실어
+                            // 보내 호출부의 강제 언래핑을 없앤다 — "rewrite면 문자열이 있다"는
+                            // 계약을 주석이 아니라 타입이 보증한다.
+    case none               // 쓸 만한 텍스트 없음 — 이미지/OCR 분기로 넘어감
 }
 
 func textPasteMode(plainString: String?, hasRichText: Bool) -> TextPasteMode {
     guard let s = plainString, !s.isEmpty else { return .none }
-    return hasRichText ? .rewrite : .direct
+    return hasRichText ? .rewrite(s) : .direct
 }
 
 // MARK: OCR 보조 계산

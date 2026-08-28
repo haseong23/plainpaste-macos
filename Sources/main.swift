@@ -28,12 +28,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                                        action: #selector(toggleLogin), keyEquivalent: "")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        handleExistingInstanceIfNeeded()
         setupStatusItem()
         installHotKeyHandler()
         registerHotKey()
         refreshMenu()
         _ = ensureAccessibility(prompt: true)   // 최초 실행 시 권한 안내
         setupTestHookIfEnabled()
+    }
+
+    // MARK: 중복 인스턴스 정리 — 전역 단축키는 먼저 등록한 프로세스가 선점한다
+    //
+    // 예전 인스턴스가 남아 있으면 새로 뜬 쪽은 RegisterEventHotKey가 실패하고, 사용자에겐
+    // "단축키가 안 먹는다"는 증상만 남는다 — 원인이 화면 어디에도 드러나지 않는다.
+    // 등록 실패(registerHotKey의 alert)를 기다리는 사후 감지 대신 기동 시점에 확인해
+    // 정리 여부를 묻는다. E2E(-PPTestHook)는 러너가 이미 정리하므로 건너뛴다.
+    private func handleExistingInstanceIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: "PPTestHook"),
+              let bundleID = Bundle.main.bundleIdentifier else { return }
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let others = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID)
+            .filter { $0.processIdentifier != myPID }
+        guard !others.isEmpty else { return }
+
+        let a = NSAlert()
+        a.messageText = "PlainPaste가 이미 실행 중입니다"
+        a.informativeText = "전역 단축키는 먼저 실행된 쪽이 가져갑니다.\n" +
+                            "기존 인스턴스를 종료하고 이 인스턴스로 계속할까요?"
+        a.addButton(withTitle: "기존 인스턴스 종료")   // .alertFirstButtonReturn
+        a.addButton(withTitle: "이 인스턴스 종료")
+        NSApp.activate(ignoringOtherApps: true)
+        guard a.runModal() == .alertFirstButtonReturn else {
+            NSApp.terminate(nil)
+            return
+        }
+
+        others.forEach { $0.terminate() }
+        // 종료가 반영돼 단축키 선점이 풀린 뒤에 registerHotKey가 돌게 잠깐 대기 (최대 2초).
+        let deadline = Date().addingTimeInterval(2.0)
+        while Date() < deadline, others.contains(where: { !$0.isTerminated }) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
     }
 
     // MARK: E2E 테스트 훅 — `-PPTestHook 1` 실행 인자로 켰을 때만 활성 (Tests/e2e.sh 전용)
@@ -157,9 +192,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         //    분기 규칙은 textPasteMode(순수 로직)로 두어 유닛테스트로 고정한다.
         let plain = pb.string(forType: .string)
         switch textPasteMode(plainString: plain, hasRichText: pasteboardHasRichText(pb)) {
-        case .rewrite:
-            // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣기 (클립보드를 플레인으로 덮어씀)
-            pasteText(plain!, ifPasteboardUnchangedFrom: sourceChangeCount)
+        case .rewrite(let text):
+            // 서식이 있으면 → 순수 텍스트로 재작성해 붙여넣기 (클립보드를 플레인으로 덮어씀).
+            // 재작성할 문자열은 규칙 함수가 연관값으로 넘겨준다 — 강제 언래핑 불필요.
+            pasteText(text, ifPasteboardUnchangedFrom: sourceChangeCount)
             return
         case .direct:
             // 이미 순수 텍스트라 지울 서식이 없다.
@@ -181,7 +217,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                     // OCR 중 새 복사가 들어왔으면 그 내용을 절대 덮어쓰지 않는다.
                     guard pb.changeCount == sourceChangeCount else { return }
                     guard let text, !text.isEmpty else {
-                        NSSound.beep()   // 인식된 글자 없음
+                        // 사용자에겐 같은 beep이지만 원인은 둘이다: nil = Vision 인식 실패
+                        // (사유는 OCREngine이 남김), 빈 문자열 = 이미지에 글자가 없음.
+                        NSLog("PlainPaste: OCR 결과 없음 (%@)",
+                              text == nil ? "인식 실패" : "인식된 글자 없음")
+                        NSSound.beep()
                         return
                     }
                     self.pasteText(text, ifPasteboardUnchangedFrom: sourceChangeCount)
@@ -191,6 +231,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         }
 
         // 3) 붙여넣을 게 없음
+        NSLog("PlainPaste: 클립보드에 붙여넣을 텍스트·이미지가 없습니다 (types: %@)",
+              String(describing: pb.types?.map(\.rawValue) ?? []))
         NSSound.beep()
     }
 
@@ -270,14 +312,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         return nil
     }
 
+    // 물리 modifier가 모두 놓일 때까지 기다렸다가 ⌘V를 보낸다.
+    //
+    // 데드라인 안에 놓이지 않으면 **보내지 않는다**. postCmdV가 합성 이벤트의 flags를 ⌘ 단독으로
+    // 강제하긴 하지만 그건 이벤트에 실린 값일 뿐이고, 이벤트 탭이나 NSEvent.modifierFlags로
+    // 하드웨어 상태를 따로 읽는 앱(터미널 멀티플렉서·에디터)은 여전히 ⌃⌥⌘가 눌린 것으로 본다
+    // → ⌘V가 엉뚱한 명령으로 해석될 수 있다. 눌린 채 보내느니 안 보내는 쪽이 안전한 실패다.
+    // 조용히 실패하지 않도록 beep + 로그로 알린다 (앱의 다른 실패 신호와 같은 방식).
+    //
+    // 2초: 단축키를 누른 손이 늦게 떨어지는 정상 범위(~수백 ms)는 넉넉히 덮으면서,
+    // modifier가 물려 버린 비정상 상태에서는 무한정 기다리지 않는 값.
+    private static let modifierReleaseTimeout: TimeInterval = 2.0
+
     private func postCmdVAfterModifierRelease(expectedChangeCount: Int, settle: TimeInterval = 0) {
         DispatchQueue.global(qos: .userInteractive).async {
-            let deadline = Date().addingTimeInterval(1.0)
             let modifierMask: CGEventFlags = [.maskCommand, .maskShift, .maskAlternate, .maskControl]
-            while Date() < deadline,
-                  !CGEventSource.flagsState(.combinedSessionState).intersection(modifierMask).isEmpty {
-                usleep(10_000)
+            func modifiersReleased() -> Bool {
+                CGEventSource.flagsState(.combinedSessionState).intersection(modifierMask).isEmpty
             }
+
+            let deadline = Date().addingTimeInterval(Self.modifierReleaseTimeout)
+            var released = modifiersReleased()
+            while !released, Date() < deadline {
+                usleep(10_000)
+                released = modifiersReleased()
+            }
+            guard released else {
+                NSLog("PlainPaste: modifier가 %.0f초 내에 해제되지 않아 붙여넣기를 취소했습니다",
+                      Self.modifierReleaseTimeout)
+                DispatchQueue.main.async { NSSound.beep() }
+                return
+            }
+
             if settle > 0 { usleep(useconds_t(settle * 1_000_000)) }
             DispatchQueue.main.async {
                 guard NSPasteboard.general.changeCount == expectedChangeCount else { return }

@@ -25,8 +25,11 @@ enum CoreTests {
         // 핵심 불변식: 순수 텍스트는 절대 .rewrite 가 되면 안 된다(클립보드를 건드리면 안 됨).
         expectEqual(textPasteMode(plainString: "hello", hasRichText: false), .direct,
                     "순수 텍스트 → .direct (클립보드 무손상)")
-        expectEqual(textPasteMode(plainString: "hello", hasRichText: true), .rewrite,
-                    "서식 텍스트 → .rewrite")
+        expectEqual(textPasteMode(plainString: "hello", hasRichText: true), .rewrite("hello"),
+                    "서식 텍스트 → .rewrite(재작성할 원문)")
+        expectEqual(textPasteMode(plainString: "  줄바꿈\n포함  ", hasRichText: true),
+                    .rewrite("  줄바꿈\n포함  "),
+                    "재작성 문자열은 가공 없이 그대로 전달 (trim·정규화 금지)")
         expectEqual(textPasteMode(plainString: " \n\t", hasRichText: false), .direct,
                     "공백/개행만이어도 비어있지 않으면 .direct")
         expectEqual(textPasteMode(plainString: "", hasRichText: false), .none,
