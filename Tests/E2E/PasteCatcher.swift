@@ -7,13 +7,21 @@ import Cocoa
 //   • 창이 키윈도우가 되고 앱이 활성화되면 <출력파일>.ready 에 자기 PID 기록
 //   • 분산 노티 com.haseong23.plainpaste.test.catcher.clear 수신 → 텍스트·파일 비움
 //   • 포커스를 뺏기면 0.3초 주기로 재활성화 (E2E 실행 중 항상 붙여넣기 대상 유지)
-//   • --no-autofocus: 재활성화 루프를 끈다. 캐처를 둘 이상 띄워 앱 전환을 시험할 때
-//     (Tests/stress.sh R4) 서로 포커스를 뺏는 무한 핑퐁을 막는다 — 이때 포커스 전환은
-//     러너가 명시적으로 지시한다.
+//   • --no-autofocus: 포커스를 스스로 붙들지 않고 **지시받았을 때만** 잡는다.
+//     캐처를 둘 이상 띄워 앱 전환을 시험할 때(Tests/stress.sh R4) 서로 포커스를 뺏는
+//     무한 핑퐁을 막는다. 러너는 분산 노티
+//       com.haseong23.plainpaste.test.catcher.focus  (object = 대상 캐처의 출력파일 경로)
+//     로 대상을 지정한다. 모든 캐처가 이 노티를 듣고 자기 경로와 같을 때만 붙들기를 켠다.
+//
+//     ※ 러너가 NSRunningApplication.activate(options:)로 남의 앱을 활성화하는 방식은
+//       쓰지 않는다 — macOS Sonoma 이후 크로스-앱 활성화는 제한되어 조용히 실패한다.
+//       자기 자신을 NSApp.activate 하는 것은 제한받지 않으므로, 포커스는 늘 캐처가
+//       스스로 잡고 러너는 "누가 잡을지"만 지시한다.
 //
 // TCC 권한 불요 — 포커스된 앱으로서 ⌘V 키 이벤트를 받기만 한다.
 
 let clearNotification = Notification.Name("com.haseong23.plainpaste.test.catcher.clear")
+let focusNotification = Notification.Name("com.haseong23.plainpaste.test.catcher.focus")
 
 final class CatcherDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate {
     private let outPath: String
@@ -21,10 +29,14 @@ final class CatcherDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
     private var window: NSWindow!
     private var textView: NSTextView!
     private var wroteReady = false
+    // 포커스를 붙들 차례인가. autoFocus 모드에서는 항상 true(기존 E2E 동작),
+    // --no-autofocus 모드에서는 러너의 focus 노티로 켜지고 다른 캐처가 지시받으면 꺼진다.
+    private var holdFocus: Bool
 
     init(outPath: String, autoFocus: Bool) {
         self.outPath = outPath
         self.autoFocus = autoFocus
+        self.holdFocus = autoFocus
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -66,13 +78,26 @@ final class CatcherDelegate: NSObject, NSApplicationDelegate, NSTextViewDelegate
             self?.writeOut("")
         }
 
+        // 포커스 지시 — object가 내 출력파일 경로면 내가 잡고, 아니면 놓는다.
+        DistributedNotificationCenter.default().addObserver(
+            forName: focusNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self, !self.autoFocus else { return }
+            let mine = (note.object as? String) == self.outPath
+            self.holdFocus = mine
+            guard mine else { return }
+            NSApp.activate(ignoringOtherApps: true)     // 자기 활성화는 제한받지 않는다
+            self.window.makeKeyAndOrderFront(nil)
+            self.window.makeFirstResponder(self.textView)
+        }
+
         writeOut("")   // 초기 상태(빈 파일) 노출
 
         // 유지 루프 — 0.3초 주기.
         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
             guard let self else { return }
 
-            if self.autoFocus, !NSApp.isActive {
+            if self.holdFocus, !NSApp.isActive {
                 NSApp.activate(ignoringOtherApps: true)
                 self.window.makeKeyAndOrderFront(nil)
                 self.window.makeFirstResponder(self.textView)

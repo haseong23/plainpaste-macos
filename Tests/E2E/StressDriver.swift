@@ -37,6 +37,7 @@ let soakCycles = env["PP_SOAK"].flatMap { Int($0) } ?? 150
 
 let pb = NSPasteboard.general
 let triggerName = Notification.Name("com.haseong23.plainpaste.test.trigger")
+let focusName = Notification.Name("com.haseong23.plainpaste.test.catcher.focus")
 let appBundleID = "com.haseong23.plainpaste"
 let axTrusted = AXIsProcessTrusted()
 
@@ -50,13 +51,20 @@ struct Catcher {
     var running: NSRunningApplication? { NSRunningApplication(processIdentifier: pid) }
     func text() -> String { (try? String(contentsOfFile: outPath, encoding: .utf8)) ?? "" }
 
-    // 이 캐처를 최전면으로. stress.sh는 캐처를 --no-autofocus로 띄우므로
-    // 포커스 주도권은 전적으로 여기 있다 (캐처끼리 서로 뺏는 핑퐁이 없다).
+    // 이 캐처를 최전면으로.
+    //
+    // 러너가 NSRunningApplication.activate(options:)로 직접 활성화하지 않는다 —
+    // macOS Sonoma 이후 크로스-앱 활성화는 제한되어 조용히 실패하고, 그러면 ⌘V가
+    // 엉뚱한 앱으로 가 "붙여넣기가 안 온다"는 잘못된 결론이 나온다(실측으로 겪음).
+    // 대신 분산 노티로 대상만 지시하고, 활성화는 캐처가 스스로 한다.
     @discardableResult
-    func focus(timeout: TimeInterval = 3) -> Bool {
+    func focus(timeout: TimeInterval = 4) -> Bool {
         guard let app = running else { return false }
-        if !app.isActive { app.activate(options: []) }
-        return waitUntil(timeout) { app.isActive }
+        DistributedNotificationCenter.default().postNotificationName(
+            focusName, object: outPath, userInfo: nil, deliverImmediately: true)
+        let ok = waitUntil(timeout) { app.isActive }
+        if ok { runLoopSleep(0.1) }   // 키윈도우·first responder 정착
+        return ok
     }
 }
 
@@ -77,6 +85,31 @@ func waitUntil(_ timeout: TimeInterval, _ cond: () -> Bool) -> Bool {
 }
 
 func marker(_ tag: String, _ i: Int) -> String { String(format: "<<%@-%04d>>", tag, i) }
+
+// MARK: 사람의 개입 감지
+//
+// 이 테스트는 포커스·클립보드·키 입력을 점유한다. 사용자가 그 사이에 타이핑하거나
+// 창을 바꾸면 붙여넣기가 엉뚱한 곳으로 가거나(포커스 변경), modifier가 눌린 채로
+// 트리거돼 앱이 정당하게 전송을 취소한다 — 둘 다 앱의 결함이 아닌데 "씹힘"으로 집계된다.
+//
+// .hidSystemState 는 **실제 하드웨어 입력만** 반영한다. 테스트가 쏘는 합성 이벤트는
+// .combinedSessionState 쪽이라 여기 잡히지 않는다 — 이 차이가 "사람"과 "테스트 자신"을
+// 가르는 판별자다. 개입이 섞인 회차는 결함이 아니라 **무효**로 처리한다.
+let hidInputTypes: [CGEventType] = [
+    .keyDown, .keyUp, .flagsChanged, .leftMouseDown, .rightMouseDown, .otherMouseDown,
+    .scrollWheel, .mouseMoved, .leftMouseDragged, .rightMouseDragged,
+]
+
+func hardwareIdleSeconds() -> Double {
+    hidInputTypes
+        .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }
+        .min() ?? .greatestFiniteMagnitude
+}
+
+// 지정한 시간만큼 사람이 손을 뗄 때까지 기다린다. 못 기다리면 false.
+func waitForHumanIdle(_ required: Double, timeout: Double) -> Bool {
+    waitUntil(timeout) { hardwareIdleSeconds() >= required }
+}
 
 // 텍스트에서 <<TAG-NNNN>> 토큰의 번호를 등장 순서대로 뽑는다
 let tokenRegex = try! NSRegularExpression(pattern: "<<([A-Z0-9]{1,8})-(\\d{4})>>")
@@ -213,6 +246,19 @@ func fire(_ method: TriggerMethod) {
     }
 }
 
+// 기본 트리거 — 실제 전역 단축키.
+//
+// 훅(분산 노티)을 기본으로 쓰다가 실측으로 갈아탔다: DistributedNotificationCenter는
+// best-effort 전달이라 고빈도로 쏘면 조용히 유실된다. 같은 워크로드에서 훅은 0/6~6/6로
+// 요동친 반면 단축키는 6/6로 일관됐다(R0가 매 실행 이 대조를 남긴다). 훅으로 측정하면
+// 하네스의 유실을 앱의 씹힘으로 오독하게 된다 — 사용자가 실제로 쓰는 경로로 잰다.
+var defaultTrigger: TriggerMethod = {
+    if let forced = env["PP_TRIGGER"] {
+        return forced == "hook" ? .hook : .hotkey
+    }
+    return axTrusted ? .hotkey : .hook
+}()
+
 // MARK: - 집계
 
 struct Tally {
@@ -224,9 +270,12 @@ struct Tally {
     var stale = 0        // 직전(또는 다른) 값이 붙음
     var duplicated = 0   // 한 번 트리거에 두 번 이상 붙음
     var polluted = 0     // 클립보드가 예상 밖 상태
+    var interfered = 0   // 사람의 하드웨어 입력이 섞인 회차 — 무효, 결함 아님
     var latencies: [TimeInterval] = []
     var strict: Bool     // true면 누락도 결함 (동기 패턴)
 
+    // 간섭 회차는 시도에서 뺀 "유효 시도"로 본다
+    var valid: Int { attempted - interfered }
     var defects: Int { stale + duplicated + polluted + (strict ? dropped : 0) }
     var ok: Bool { defects == 0 }
 
@@ -246,9 +295,10 @@ var notes: [String] = []
 // 캐처는 append-only이므로 baseline 이후 증가분만 보면 이번 회차의 결과가 정확히 나온다.
 
 @discardableResult
-func syncCycle(into catcher: Catcher, expect: String, timeout: TimeInterval = 4,
-               method: TriggerMethod = .hook, tally: inout Tally,
+func syncCycle(into catcher: Catcher, expect: String, timeout: TimeInterval = 5,
+               method: TriggerMethod? = nil, tally: inout Tally,
                copy: () -> Void) -> Bool {
+    let method = method ?? defaultTrigger
     let baseline = catcher.text()
     copy()
     tally.attempted += 1
@@ -256,12 +306,20 @@ func syncCycle(into catcher: Catcher, expect: String, timeout: TimeInterval = 4,
     fire(method)
 
     let grew = waitUntil(timeout) { catcher.text().count > baseline.count }
-    guard grew else { tally.dropped += 1; return false }
-    runLoopSleep(0.12)   // 기록 정착 — 늦게 오는 두 번째 붙여넣기(중복)도 잡는다
+    if grew { runLoopSleep(0.12) }   // 기록 정착 — 늦게 오는 두 번째 붙여넣기(중복)도 잡는다
+    let elapsed = Date().timeIntervalSince(t0)
 
-    let full = catcher.text()
-    let delta = String(full.dropFirst(baseline.count))
-    tally.latencies.append(Date().timeIntervalSince(t0))
+    // 이 회차가 도는 동안 사람이 키보드·마우스를 건드렸으면 결과를 신뢰할 수 없다.
+    // 여유 0.3초는 판정 직전에 들어온 입력까지 보수적으로 무효로 보기 위한 것.
+    if hardwareIdleSeconds() < elapsed + 0.3 {
+        tally.interfered += 1
+        return false
+    }
+
+    guard grew else { tally.dropped += 1; return false }
+
+    let delta = String(catcher.text().dropFirst(baseline.count))
+    tally.latencies.append(elapsed)
 
     let hits = delta.components(separatedBy: expect).count - 1
     if hits >= 2 { tally.duplicated += 1; return false }
@@ -275,17 +333,67 @@ func syncCycle(into catcher: Catcher, expect: String, timeout: TimeInterval = 4,
     return false
 }
 
+// 시나리오 하나가 끝날 때마다 호출 — 개입이 심하면 더 돌려 봐야 쓰레기 수치만 쌓인다.
+func abortIfContaminated(_ t: Tally) {
+    guard t.attempted >= 4, Double(t.interfered) / Double(t.attempted) > 0.25 else { return }
+    print("")
+    print("⛔️ 중단 — '\(t.name)'에서 \(t.attempted)회 중 \(t.interfered)회가 사람의 입력과 겹쳤습니다.")
+    print("   이 테스트는 포커스·클립보드·키 입력을 독점해야 의미 있는 수치가 나옵니다.")
+    print("   자리를 비울 수 있을 때 다시 실행해 주세요. 지금까지의 수치는 신뢰할 수 없습니다.")
+    exit(3)
+}
+
 // MARK: - 준비
 
 print("PlainPaste 스트레스 — 실행 중 키보드/마우스를 만지지 마세요")
-print("반복 \(cycles)회 · 소크 \(soakCycles)회 · 실제 단축키 경로 \(axTrusted ? "사용 가능" : "권한 없음 → skip")")
+print("반복 \(cycles)회 · 소크 \(soakCycles)회 · 기본 트리거: \(defaultTrigger.rawValue)")
+if !axTrusted {
+    print("⚠︎ 러너에 손쉬운 사용 권한이 없어 훅(분산 노티)으로 폴백합니다 —")
+    print("   훅은 고빈도에서 유실되므로 누락 수치를 앱의 결함으로 읽으면 안 됩니다.")
+}
 print("")
 
+// ── 유휴 게이트: 사람이 손을 뗀 뒤에 시작한다 ────────────────────────────────
+// 작업 중에 돌리면 포커스를 뺏어 사용자를 방해하고, 수치도 오염된다. 둘 다 막는다.
+if hardwareIdleSeconds() < 2.0 {
+    print("사람의 입력이 감지됨 — 손을 뗄 때까지 최대 30초 기다립니다…")
+}
+if !waitForHumanIdle(2.0, timeout: 30) {
+    print("")
+    print("⛔️ 시작하지 않습니다 — 키보드·마우스가 계속 사용 중입니다.")
+    print("   이 테스트는 실행 내내 포커스·클립보드·키 입력을 독점합니다.")
+    print("   자리를 비울 수 있을 때 다시 실행해 주세요.")
+    exit(3)
+}
+
 // ── 캐너리: 앱이 살아 있고 ⌘V를 보낼 수 있는가 ────────────────────────────────
+//
+// 한 방에 판정하지 않는다. `open` 직후에는 앱이 아직 RegisterEventHotKey·노티 옵저버를
+// 걸기 전일 수 있어, 첫 트리거만 보고 "권한 없음"으로 결론내면 오진이 된다(실측으로 겪음).
+// 앱 프로세스가 뜰 때까지 기다린 뒤, 두 트리거를 번갈아 여러 번 시도하고 무엇이 언제
+// 통했는지까지 남긴다.
 catcherA.focus()
 var canary = Tally(name: "canary", note: "", strict: true)
-let canaryOK = syncCycle(into: catcherA, expect: marker("CAN", 1), tally: &canary) {
-    setPlain(marker("CAN", 1))
+
+let appUp = waitUntil(10) {
+    !NSRunningApplication.runningApplications(withBundleIdentifier: appBundleID).isEmpty
+}
+if !appUp { print("⚠︎ PlainPaste 프로세스를 10초 내에 찾지 못했습니다") }
+
+var canaryOK = false
+var canaryMethod: TriggerMethod?
+var canaryAttempts = 0
+for attempt in 1...6 {
+    let method: TriggerMethod = (attempt % 2 == 1) ? defaultTrigger
+                                                   : (defaultTrigger == .hotkey ? .hook : .hotkey)
+    canaryAttempts = attempt
+    if syncCycle(into: catcherA, expect: marker("CAN", attempt), timeout: 3,
+                 method: method, tally: &canary, copy: { setPlain(marker("CAN", attempt)) }) {
+        canaryOK = true
+        canaryMethod = method
+        break
+    }
+    runLoopSleep(0.5)
 }
 if !canaryOK {
     // 실패 원인을 하네스 / 앱으로 갈라 준다 — 드라이버가 직접 ⌘V를 쏴 보고,
@@ -327,7 +435,51 @@ if !canaryOK {
     print("        \(appPath)")
     exit(2)
 }
-print("캐너리 통과 — 붙여넣기 경로 정상\n")
+print("캐너리 통과 — \(canaryMethod?.rawValue ?? "?") 경로, \(canaryAttempts)번째 시도에서 성공")
+if canaryAttempts > 1 {
+    notes.append("캐너리가 \(canaryAttempts)번째에 통과 — 기동 직후 트리거 등록 지연 관측")
+}
+if let m = canaryMethod, m != defaultTrigger {
+    print("⚠︎ 기본 트리거(\(defaultTrigger.rawValue))는 실패하고 \(m.rawValue)로 통과했습니다 —")
+    print("   기본 트리거를 \(m.rawValue)로 바꿔 측정합니다.")
+    notes.append("기본 트리거를 \(m.rawValue)로 자동 전환 (원래 \(defaultTrigger.rawValue) 실패)")
+    defaultTrigger = m
+}
+print("")
+
+// ── R0: 트리거 방법 대조 — 하네스 유효성의 근거를 매 실행 남긴다 ──────────────
+// 같은 워크로드를 훅과 실제 단축키로 각각 돌려 도착률을 비교한다. 훅이 뚜렷이 낮으면
+// 그 차이는 앱의 씹힘이 아니라 분산 노티의 유실이다 — 이 표가 없으면 두 원인을 구분할
+// 근거가 사라진다. 판정하지 않고 관측만 한다.
+print("R0 트리거 대조 — 훅 vs 실제 단축키, 각 \(max(10, cycles / 2))회")
+if axTrusted {
+    let n = max(10, cycles / 2)
+    var viaHook = Tally(name: "R0 훅", note: "대조", strict: false)
+    var viaKey = Tally(name: "R0 단축키", note: "대조", strict: false)
+    catcherA.focus()
+    for i in 1...n {
+        let m = marker("R0H", i)
+        syncCycle(into: catcherA, expect: m, method: .hook, tally: &viaHook) { setPlain(m) }
+    }
+    for i in 1...n {
+        let m = marker("R0K", i)
+        syncCycle(into: catcherA, expect: m, method: .hotkey, tally: &viaKey) { setPlain(m) }
+    }
+    let hookRate = Double(viaHook.arrived) / Double(max(1, viaHook.attempted))
+    let keyRate = Double(viaKey.arrived) / Double(max(1, viaKey.attempted))
+    print(String(format: "   훅 %d/%d (%.0f%%) · 단축키 %d/%d (%.0f%%)",
+                 viaHook.arrived, viaHook.attempted, hookRate * 100,
+                 viaKey.arrived, viaKey.attempted, keyRate * 100))
+    if keyRate - hookRate > 0.15 {
+        notes.append(String(format: "R0: 훅 도착률이 단축키보다 %.0f%%p 낮음 — 분산 노티 유실. "
+                            + "훅 기반 수치는 앱의 씹힘으로 읽으면 안 됨",
+                            (keyRate - hookRate) * 100))
+    } else {
+        notes.append("R0: 훅·단축키 도착률 차이 미미 — 두 트리거 모두 신뢰 가능")
+    }
+} else {
+    print("   ⊘ SKIP — 러너 권한 없음 (단축키 경로를 만들 수 없어 대조 불가)")
+}
 
 // ── R1: 동기 반복 (같은 프로세스 복사) ───────────────────────────────────────
 print("R1 동기 반복 \(cycles)회 — 같은 프로세스 복사, 훅 트리거")
@@ -337,6 +489,7 @@ for i in 1...cycles {
     let m = marker("R1", i)
     syncCycle(into: catcherA, expect: m, tally: &r1) { setPlain(m) }
 }
+abortIfContaminated(r1)
 tallies.append(r1)
 print("   도착 \(r1.arrived)/\(r1.attempted) · 누락 \(r1.dropped) · 밀림 \(r1.stale) · 중복 \(r1.duplicated)")
 
@@ -348,6 +501,7 @@ for i in 1...cycles {
     let m = marker("R2", i)
     syncCycle(into: catcherA, expect: m, tally: &r2) { setPlainExternally(m) }
 }
+abortIfContaminated(r2)
 tallies.append(r2)
 print("   도착 \(r2.arrived)/\(r2.attempted) · 누락 \(r2.dropped) · 밀림 \(r2.stale) · 중복 \(r2.duplicated)")
 
@@ -378,6 +532,7 @@ for i in 1...cycles {
             || types.contains(.rtf) || types.contains(.html) { r3.polluted += 1 }
     }
 }
+abortIfContaminated(r3)
 tallies.append(r3)
 print("   도착 \(r3.arrived)/\(r3.attempted) · 누락 \(r3.dropped) · 밀림 \(r3.stale) · 오염 \(r3.polluted)")
 
@@ -396,25 +551,24 @@ for i in 1...cycles {
     if other.text().count != otherBaseline.count { misdelivered += 1 }
 }
 r4.polluted += misdelivered
+abortIfContaminated(r4)
 tallies.append(r4)
 if misdelivered > 0 { notes.append("R4: 비활성 앱에 붙여넣기가 샌 횟수 \(misdelivered)") }
 print("   도착 \(r4.arrived)/\(r4.attempted) · 누락 \(r4.dropped) · 밀림 \(r4.stale) · 오배달 \(misdelivered)")
 
-// ── R5: 실제 전역 단축키 경로로 반복 ─────────────────────────────────────────
-print("R5 실제 단축키(⌃⌥⌘V) 반복 — RegisterEventHotKey 실경로")
-if axTrusted {
-    var r5 = Tally(name: "R5 실단축키", note: "합성 ⌃⌥⌘V", strict: true)
-    catcherA.focus()
-    for i in 1...cycles {
-        let m = marker("R5", i)
-        syncCycle(into: catcherA, expect: m, timeout: 5, method: .hotkey, tally: &r5) { setPlain(m) }
-    }
-    tallies.append(r5)
-    print("   도착 \(r5.arrived)/\(r5.attempted) · 누락 \(r5.dropped) · 밀림 \(r5.stale) · 중복 \(r5.duplicated)")
-} else {
-    print("   ⊘ SKIP — 러너(터미널)에 손쉬운 사용 권한 없음")
-    notes.append("R5 skip: 실제 단축키 경로 미검증 (터미널 손쉬운 사용 권한 필요)")
+// ── R5: 훅 트리거 반복 — 비게이팅 관측 ───────────────────────────────────────
+// 기본 트리거가 실제 단축키가 된 뒤로 훅은 "테스트 훅 자체가 얼마나 믿을 만한가"를
+// 추적하는 자리다. 유실이 하네스 쪽 특성이므로 누락으로 실패시키지 않는다(strict: false).
+print("R5 훅 트리거 반복 — 테스트 훅 신뢰도 관측 (비게이팅)")
+var r5 = Tally(name: "R5 훅(관측)", note: "누락 비게이팅", strict: false)
+catcherA.focus()
+for i in 1...cycles {
+    let m = marker("R5", i)
+    syncCycle(into: catcherA, expect: m, method: .hook, tally: &r5) { setPlain(m) }
 }
+abortIfContaminated(r5)
+tallies.append(r5)
+print("   도착 \(r5.arrived)/\(r5.attempted) · 누락 \(r5.dropped) · 밀림 \(r5.stale) · 중복 \(r5.duplicated)")
 
 // ── R6: 비동기 스트레스 — 사람보다 빠른 속도로 밀어넣기 ───────────────────────
 // 설계된 드롭이 발동하는 구간. 누락은 허용, 밀림·중복은 결함.
@@ -427,7 +581,7 @@ for (idx, gap) in [0.02, 0.06, 0.12].enumerated() {
     let n = max(10, cycles / 2)
     for i in 1...n {
         setPlain(marker(tag, i))
-        triggerHook()
+        fire(defaultTrigger)
         t.attempted += 1
         runLoopSleep(gap)
     }
@@ -454,6 +608,7 @@ for i in 1...soakCycles {
     if !ok { if i <= soakCycles / 2 { firstHalfFail += 1 } else { secondHalfFail += 1 } }
     if i % 50 == 0 { print("   … \(i)/\(soakCycles)") }
 }
+abortIfContaminated(r7)
 tallies.append(r7)
 notes.append("R7 전반부 실패 \(firstHalfFail) · 후반부 실패 \(secondHalfFail)" +
              (secondHalfFail > firstHalfFail * 2 + 2 ? "  ← 후반 열화 의심" : "  (열화 없음)"))
@@ -470,7 +625,7 @@ for i in 1...ocrRounds {
     setPNGText("PPOCR \(digits)")
     r8.attempted += 1
     let t0 = Date()
-    triggerHook()
+    fire(defaultTrigger)
     guard waitUntil(15, { catcherA.text().count > baseline.count }) else { r8.dropped += 1; continue }
     runLoopSleep(0.15)
     let delta = String(catcherA.text().dropFirst(baseline.count))
@@ -478,6 +633,7 @@ for i in 1...ocrRounds {
     if delta.replacingOccurrences(of: " ", with: "").contains(digits) { r8.arrived += 1 }
     else { r8.stale += 1; notes.append("R8 회차\(i) 인식 불일치: '\(delta.prefix(40))'") }
 }
+abortIfContaminated(r8)
 tallies.append(r8)
 print("   도착 \(r8.arrived)/\(r8.attempted) · 누락 \(r8.dropped) · 불일치 \(r8.stale)")
 
@@ -495,18 +651,26 @@ func rpad(_ s: String, _ w: Int) -> String {
 
 print("")
 print(String(repeating: "─", count: 84))
-print(pad("시나리오", 20) + rpad("시도", 6) + rpad("도착", 6) + rpad("누락", 6)
-      + rpad("밀림", 6) + rpad("중복", 6) + rpad("오염", 6)
+print(pad("시나리오", 20) + rpad("유효", 6) + rpad("도착", 6) + rpad("누락", 6)
+      + rpad("밀림", 6) + rpad("중복", 6) + rpad("오염", 6) + rpad("간섭", 6)
       + rpad("p50", 9) + rpad("p95", 9) + rpad("판정", 7))
 print(String(repeating: "─", count: 84))
 for t in tallies {
-    print(pad(t.name, 20) + rpad("\(t.attempted)", 6) + rpad("\(t.arrived)", 6)
+    print(pad(t.name, 20) + rpad("\(t.valid)", 6) + rpad("\(t.arrived)", 6)
           + rpad("\(t.dropped)", 6) + rpad("\(t.stale)", 6) + rpad("\(t.duplicated)", 6)
-          + rpad("\(t.polluted)", 6) + rpad(ms(t.pct(0.5)), 9) + rpad(ms(t.pct(0.95)), 9)
+          + rpad("\(t.polluted)", 6) + rpad("\(t.interfered)", 6)
+          + rpad(ms(t.pct(0.5)), 9) + rpad(ms(t.pct(0.95)), 9)
           + rpad(t.ok ? "✓" : "✗", 7))
 }
 print(String(repeating: "─", count: 84))
 print("판정 기준: 동기 시나리오는 누락도 결함 · 비동기(R6)는 누락 허용, 밀림·중복·오염만 결함")
+print("유효 = 시도 − 간섭. 간섭 = 그 회차가 도는 동안 사람의 하드웨어 입력이 섞인 것 (무효 처리)")
+let totalInterfered = tallies.reduce(0) { $0 + $1.interfered }
+if totalInterfered > 0 {
+    print("")
+    print("⚠︎ 간섭 \(totalInterfered)회 — 실행 중 키보드·마우스 입력이 있었습니다.")
+    print("   해당 회차는 집계에서 제외했지만, 수치의 신뢰도는 그만큼 낮습니다.")
+}
 
 if !notes.isEmpty {
     print("")
